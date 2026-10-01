@@ -1,0 +1,255 @@
+# Cấu hình cục bộ của NEXA (tự sinh). Không chứa API key.
+audio:
+  input_device: null
+  output_device: null
+  preferred_hostapi: MME
+  clap:
+    mode: single
+    sensitivity: 0.55
+    min_level_dbfs: -42
+    double_min_gap_ms: 120
+    double_max_gap_ms: 700
+    debounce_ms: 110
+    cooldown_ms: 1500
+    calibration_seconds: 2
+  snap:
+    enabled: true
+    camera: true
+    sensitivity: 0.6
+    min_level_dbfs: -50
+    cooldown_ms: 900
+    calibration_seconds: 2
+  vad:
+    start_margin_db: 10
+    end_margin_db: 6
+    min_speech_ms: 250
+    end_silence_ms: 500
+    max_utterance_s: 12
+    listen_timeout_s: 8
+    pre_roll_ms: 300
+  echo_tail_ms: 300
+  duck_media: true
+  duck_level: 0.2
+session:
+  idle_timeout_s: 60
+  greeting: Chào anh Sơn, em là Nexa. Em sẵn sàng.
+power:
+  clap_wake_guard: true
+  screen_off: true
+  away_after_s: 300
+  wake_greeting: ''
+stt:
+  model: auto
+  device: auto
+  compute_type: auto
+  beam_size: 3
+  hotwords: []
+  min_confidence_logprob: -0.9
+  cpu_threads: 0
+  language: vi
+  bias_mode: context
+  context_max_terms: 12
+research:
+  record_corpus: false
+  corpus_dir: ''
+  max_items: 5000
+  speaker_id: S01
+tts:
+  backend: auto
+  edge_voice: en-US-AndrewMultilingualNeural
+  edge_pitch_hz: 0
+  winrt_voice: ''
+  winrt_pitch: null
+  effect: jarvis
+  effect_strength: 0.5
+  rate: 5
+  volume: 1
+ai:
+  provider: gemini
+  model: ''
+  max_history_turns: 12
+  max_output_tokens: 1024
+  temperature: 0.6
+  max_calls_per_session: 300
+  max_retries: 2
+  fallback_models:
+  - gemini-3.6-flash
+  - gemini-3.1-flash-lite
+  attempt_timeout_s: 7
+  request_budget_s: 20
+  thinking_level: minimal
+  persist_history: false
+gestures:
+  enabled_on_start: true
+  camera_index: 0
+  camera_width: 640
+  camera_height: 480
+  camera_fps: 30
+  num_hands: 1
+  control_hand: any
+  show_landmarks: true
+monitors:
+  source: null
+  target: null
+media:
+  backend: auto
+youtube:
+  auto_skip_ads: false
+files:
+  allowed_roots:
+  - '{Desktop}'
+  - '{Documents}'
+  - '{Downloads}'
+  - '{Pictures}'
+  screenshot_dir: '{Pictures}/NEXA'
+  search_limit: 50
+apps:
+  custom: []
+  browser_path: ''
+  search_engine: https://www.google.com/search?q={query}
+ui:
+  effects: full
+  overlay: true
+  sounds: true
+  compact_on_start: false
+  show_fps: false
+  side_by_side: true
+  side_by_side_ratio: 0.4
+  theme: arc_reactor
+  stats_ring: true
+  hud:
+    enabled: true
+    screen: primary
+    corner: bottom_right
+    subtitles: true
+    cards: true
+    card_seconds: 5
+safety:
+  autonomy: full
+hotkeys:
+  emergency_stop: ctrl+alt+escape
+  wake: ctrl+alt+n
+code:
+  enabled: true
+  models:
+  - gemini-3.8-flash
+  - gemini-3.5-flash
+  thinking: medium
+  timeout_s: 180
+  max_tokens: 32000
+  temperature: 0.2
+  repair_rounds: 2
+  with_tests: true
+  comment_language: vi
+  run_timeout_s: 30
+  run_file_in: nexa
+  html_preview: true
+  python_path: ''
+  save_dir: ''
+  history_limit: 30
+  gesture:
+    auto_camera: false
+    fist_hold_ms: 700
+    scroll_deadzone: 0.3
+    scroll_gain: 1600
+    scroll_max: 3000
+    invert_scroll: false
+three_d:
+  enabled: true
+  default_mode: auto
+  provider: auto
+  cache_dir: ''
+  cache_size_mb: 4096
+  keep_generated_assets: true
+  max_asset_mb: 200
+  max_triangles: 2000000
+  max_texture_size: 4096
+  candidate_count: 2
+  refinement_rounds: 1
+  quality_threshold: 90
+  generation_timeout_s: 900
+  max_cost_per_job: 0
+  ai_review: true
+  use_gemini_planner: true
+  reference_images: auto
+  reference_image_model: gemini-3.1-flash-image
+  cloud_segmentation: true
+  tripo_model_version: v3.1-20260211
+  tripo_api: v3
+  tripo_texture_quality: detailed
+  tripo_texture_quality_high: extreme
+  tripo_geometry_quality: detailed
+  tripo_auto_size: true
+  tripo_face_limit: 0
+  tripo_segment_model: v2.0-20260430
+  cloud_segment_free_objects: false
+  meshy_ai_model: latest
+  dsl_models:
+  - gemini-3.8-flash
+  - gemini-3.5-flash
+  dsl_thinking: medium
+  dsl_timeout_s: 180
+  dsl_max_tokens: 24000
+  dsl_repair_rounds: 2
+  dsl_refine_rounds: 2
+  dsl_fallback_below: 55
+  hf_enabled: true
+  hf_prefer_with_token: true
+  hf_image_space: black-forest-labs/FLUX.1-schnell
+  hf_3d_spaces:
+  - trellis-community/TRELLIS
+  - tencent/Hunyuan3D-2
+  - tencent/Hunyuan3D-2.1
+  hf_timeout_s: 840
+  hf_image_timeout_s: 180
+  hf_space_timeout_s: 360
+  hf_expected_s: 120
+  open_viewer_when_ready: true
+  viewer_auto_camera: false
+  viewer_triangle_budget: 1500000
+  gesture:
+    rotate_sensitivity: 110
+    rotate_deadzone: 0.25
+    acquire_ms: 200
+    fist_hold_ms: 500
+    open_hold_ms: 350
+    cooldown_ms: 700
+    animation_ms: 900
+    arm_timeout_ms: 3000
+    explode_max_speed: 1.8
+    inertia: 0.35
+    pitch_limit_deg: 85
+    zoom_two_fingers: true
+routines:
+  bat_dau_lam_viec:
+    name: Bắt đầu làm việc
+    phrases:
+    - bắt đầu làm việc
+    - vào việc
+    - bắt đầu ngày làm việc
+    - chế độ làm việc
+    steps:
+    - label: Claude
+      app: Claude
+      aumid: Claude_pzs8sxrjxfjjc!Claude
+      process: claude.exe
+      monitor: 1
+    - label: Zalo
+      app: Zalo
+      process: zalo.exe
+      title: Zalo
+      monitor: 1
+    - label: YouTube
+      url: https://www.youtube.com
+      title: YouTube
+      monitor: 2
+    - label: ChatGPT
+      url: https://chatgpt.com
+      title: ChatGPT
+      monitor: 2
+    - label: VS Code
+      app: Visual Studio Code
+      process: code.exe
+      monitor: 1
+    - label: Tin nhắn Zalo
+      action: check_zalo

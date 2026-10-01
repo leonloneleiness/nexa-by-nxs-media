@@ -1,0 +1,556 @@
+    // ---------- thành phần tái sử dụng ----------
+    // Icon: Segoe Fluent Icons (Windows 11), dự phòng Segoe MDL2 Assets (Windows 10) — cùng mã glyph.
+    readonly property string iconFont: Qt.fontFamilies().indexOf("Segoe Fluent Icons") >= 0 ? "Segoe Fluent Icons" : "Segoe MDL2 Assets"
+    function glyph(code) { return String.fromCharCode(code) }
+    // Màu chủ đạo theo trạng thái (Theme.js) — trùng màu quả cầu: nghe cyan · suy nghĩ tím · nói vàng cam…
+    property color stateAccent: Theme.stateColor(nexa.state)
+    Behavior on stateAccent { ColorAnimation { duration: 450 } }
+    readonly property bool busy: nexa.state === "THINKING" || nexa.state === "EXECUTING" || nexa.state === "CONFIRMING"
+    function taskColor(st) {
+        return st === "done" ? "#34d399" : (st === "running" || st === "queued") ? win.cyan
+             : st === "confirming" ? "#fbbf24" : st === "auto_approved" ? "#a855f7" : st === "cancelled" ? "#64748b" : "#fb7185"
+    }
+    function taskGlyph(st) {
+        return st === "done" ? 0xE73E : st === "confirming" ? 0xE7BA : st === "auto_approved" ? 0xE785 : 0xE711
+    }
+
+    component NButton: Button {
+        id: nb
+        property color tint: win.cyan
+        property bool danger: false
+        font.pixelSize: 13
+        leftPadding: 14; rightPadding: 14; topPadding: 7; bottomPadding: 7
+        contentItem: Text { text: nb.text; font: nb.font; color: nb.enabled ? "white" : "#5b7089"
+                            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+        background: Rectangle {
+            radius: 8
+            color: nb.danger ? (nb.down ? "#9f1239" : "#be123c") : (nb.down ? Qt.darker(nb.tint, 2.2) : (nb.hovered ? "#12305a" : "#0d2142"))
+            border.color: nb.danger ? "#fb7185" : Qt.rgba(nb.tint.r, nb.tint.g, nb.tint.b, nb.hovered ? 0.9 : 0.45)
+            border.width: 1
+        }
+    }
+    component NTip: ToolTip {
+        id: tip
+        delay: 300
+        contentItem: Text { text: tip.text; color: "white"; font.pixelSize: 12 }
+        background: Rectangle { radius: 6; color: "#0b1a33"; border.color: win.panelBorder }
+    }
+    component Chip: Rectangle {
+        id: chip
+        property string label: ""
+        property string value: ""
+        property int level: 0     // 0 tắt, 1 tốt, 2 cảnh báo, 3 lỗi
+        radius: 16; height: 32
+        width: chipRow.implicitWidth + 20
+        color: "#0b1a33"
+        border.color: level === 1 ? "#1f9d8b" : level === 2 ? "#b7791f" : level === 3 ? "#be123c" : "#1e3352"
+        Row {
+            id: chipRow; anchors.centerIn: parent; spacing: 6
+            Rectangle { width: 8; height: 8; radius: 4; anchors.verticalCenter: parent.verticalCenter
+                        color: chip.level === 1 ? "#34d399" : chip.level === 2 ? "#fbbf24" : chip.level === 3 ? "#fb7185" : "#475569" }
+            Text { text: chip.label; color: win.textDim; font.pixelSize: 12 }
+            Text { text: chip.value; color: "white"; font.pixelSize: 12; font.bold: true; elide: Text.ElideRight
+                   width: Math.min(implicitWidth, 150) }
+        }
+    }
+    // Icon trạng thái tròn ở thanh tiêu đề: màu = mức (tốt / cảnh báo / lỗi), rê chuột xem chi tiết.
+    component StatusIcon: Rectangle {
+        id: si
+        property int glyphCode: 0
+        property string label: ""
+        property string value: ""
+        property int level: 0     // 0 tắt, 1 tốt, 2 cảnh báo, 3 lỗi
+        signal clicked()
+        readonly property color levelColor: level === 1 ? "#34d399" : level === 2 ? "#fbbf24" : level === 3 ? "#fb7185" : "#475569"
+        width: 32; height: 32; radius: 16
+        color: siMouse.containsMouse ? "#12264a" : "#0b1a33"
+        border.width: 1
+        border.color: Qt.rgba(levelColor.r, levelColor.g, levelColor.b, level === 0 ? 0.5 : 0.8)
+        Text { anchors.centerIn: parent; text: win.glyph(si.glyphCode); font.family: win.iconFont; font.pixelSize: 15
+               color: si.level === 0 ? "#5b7089" : si.level === 1 ? "#cfe9ff" : si.levelColor }
+        Rectangle { visible: si.level >= 2; width: 10; height: 10; radius: 5; color: si.levelColor
+                    border.color: "#040914"; border.width: 2
+                    anchors.right: parent.right; anchors.top: parent.top; anchors.rightMargin: -2; anchors.topMargin: -2 }
+        MouseArea { id: siMouse; anchors.fill: parent; hoverEnabled: true; onClicked: si.clicked() }
+        NTip { visible: siMouse.containsMouse; text: si.label + ": " + si.value }
+    }
+    component HeaderButton: Rectangle {
+        id: hb
+        property int glyphCode: 0
+        property string tip: ""
+        property color hoverTint: win.cyan
+        signal clicked()
+        width: 34; height: 34; radius: 10
+        color: hbMouse.pressed ? "#0a1a36" : hbMouse.containsMouse ? "#12264a" : "transparent"
+        border.width: 1
+        border.color: hbMouse.containsMouse ? Qt.rgba(hoverTint.r, hoverTint.g, hoverTint.b, 0.7) : "#1e3352"
+        Text { anchors.centerIn: parent; text: win.glyph(hb.glyphCode); font.family: win.iconFont; font.pixelSize: 15
+               color: hbMouse.containsMouse ? hb.hoverTint : "#a9c3dc" }
+        MouseArea { id: hbMouse; anchors.fill: parent; hoverEnabled: true; onClicked: hb.clicked() }
+        NTip { visible: hbMouse.containsMouse; text: hb.tip }
+    }
+    // Nút tròn trên dock: icon + chú thích nhỏ; primary = nền màu trạng thái; active = đang bật.
+    component DockButton: Item {
+        id: db
+        property int glyphCode: 0
+        property string caption: ""
+        property string tip: caption
+        property color tint: win.cyan
+        property bool active: false
+        property bool primary: false
+        property bool pulsing: false
+        property bool showCaption: true
+        property real size: 42
+        signal clicked()
+        opacity: enabled ? 1 : 0.4
+        implicitWidth: Math.max(size, showCaption ? capText.implicitWidth : 0) + 8
+        implicitHeight: size + (showCaption ? capText.implicitHeight + 3 : 0)
+        width: implicitWidth; height: implicitHeight
+        Rectangle {   // vòng lan tỏa khi đang nghe
+            anchors.centerIn: disc
+            width: db.size; height: db.size; radius: db.size / 2
+            color: "transparent"; border.color: db.tint; border.width: 2
+            visible: db.pulsing
+            NumberAnimation on scale { running: db.pulsing; loops: Animation.Infinite; from: 1; to: 1.45; duration: 1100; easing.type: Easing.OutCubic }
+            NumberAnimation on opacity { running: db.pulsing; loops: Animation.Infinite; from: 0.8; to: 0; duration: 1100; easing.type: Easing.OutCubic }
+        }
+        Rectangle {
+            id: disc
+            width: db.size; height: db.size; radius: db.size / 2
+            anchors.horizontalCenter: parent.horizontalCenter
+            color: db.primary ? Qt.rgba(db.tint.r, db.tint.g, db.tint.b, dbMouse.pressed ? 0.55 : dbMouse.containsMouse ? 0.42 : 0.3)
+                 : db.active ? Qt.rgba(db.tint.r, db.tint.g, db.tint.b, 0.28)
+                 : dbMouse.pressed ? "#0a1a36" : dbMouse.containsMouse ? "#14305a" : "#0d2142"
+            border.width: db.primary || db.active ? 1.5 : 1
+            border.color: Qt.rgba(db.tint.r, db.tint.g, db.tint.b, db.primary || db.active || dbMouse.containsMouse ? 0.95 : 0.4)
+            scale: dbMouse.pressed ? 0.94 : 1
+            Behavior on scale { NumberAnimation { duration: 90 } }
+            Text { anchors.centerIn: parent; text: win.glyph(db.glyphCode); font.family: win.iconFont
+                   font.pixelSize: Math.round(db.size * 0.42); color: db.primary || db.active ? "white" : "#cfe9ff" }
+        }
+        Text { id: capText; visible: db.showCaption; anchors.top: disc.bottom; anchors.topMargin: 3
+               anchors.horizontalCenter: parent.horizontalCenter; text: db.caption; font.pixelSize: 11
+               color: db.active || db.primary ? "white" : win.textDim }
+        MouseArea { id: dbMouse; anchors.fill: parent; hoverEnabled: true; enabled: db.enabled; onClicked: db.clicked() }
+        NTip { visible: dbMouse.containsMouse && db.tip.length > 0; text: db.tip }
+    }
+    component DarkMenuItem: MenuItem {
+        id: dmi
+        implicitWidth: 230
+        contentItem: Text { text: dmi.text; color: dmi.enabled ? "white" : "#5b7089"; font.pixelSize: 13
+                            leftPadding: 6; verticalAlignment: Text.AlignVCenter }
+        background: Rectangle { radius: 6; color: dmi.highlighted ? "#14305a" : "transparent" }
+    }
+
+    // ---------- nền ----------
+    Rectangle {
+        anchors.fill: parent
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#050c1c" }
+            GradientStop { position: 0.55; color: "#040914" }
+            GradientStop { position: 1.0; color: "#070417" }
+        }
+        visible: !nexa.compact
+    }
+
+    // ---------- chế độ thu gọn ----------
+    Item {
+        anchors.fill: parent
+        visible: nexa.compact
+        Orb { anchors.fill: parent; appState: nexa.state; micLevel: nexa.micLevel; outLevel: nexa.outLevel; outBands: nexa.outBands
+              effects: nexa.effects === "full" ? "reduced" : nexa.effects }
+        MouseArea {
+            anchors.fill: parent
+            property point press
+            onPressed: (m) => press = Qt.point(m.x, m.y)
+            onPositionChanged: (m) => { if (pressed) { win.x += m.x - press.x; win.y += m.y - press.y } }
+            onDoubleClicked: win.enterCompact(false)
+        }
+        Text { anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottomMargin: 6
+               text: nexa.stateLabel; color: "white"; font.pixelSize: 11; style: Text.Outline; styleColor: "#040914" }
+        Rectangle {
+            anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 6
+            width: 26; height: 26; radius: 13; color: "#be123c"
+            Text { anchors.centerIn: parent; text: "■"; color: "white"; font.pixelSize: 12 }
+            MouseArea { anchors.fill: parent; onClicked: nexa.stop() }
+        }
+    }
+
+    // ---------- giao diện đầy đủ ----------
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: 14
+        spacing: 10
+        visible: !nexa.compact
+
+        // Thanh tiêu đề: logo · icon trạng thái · Cài đặt / Thu gọn / Thoát
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            Column {
+                spacing: 0
+                Row {
+                    spacing: 8
+                    Text { text: "NEXA"; color: win.cyan; font.pixelSize: 26; font.bold: true; font.letterSpacing: 6 }
+                    Text { visible: !win.narrow; text: "— by NXS MEDIA"; color: "#c4b5fd"; font.pixelSize: 14
+                           anchors.bottom: parent.bottom; anchors.bottomMargin: 4 }
+                }
+                Text { text: "Trợ lý của anh Nguyễn Xuân Sơn"; color: win.textDim; font.pixelSize: 12 }
+            }
+            Item { Layout.fillWidth: true }
+            // tiến độ việc dài (chỉ hiện khi đang chạy)
+            Chip { visible: nexa3d.activeJob.id !== undefined && nexa3d.activeJob.terminal === false; label: "3D"
+                   value: (nexa3d.activeJob.label || "") + " " + Math.round((nexa3d.activeJob.progress || 0) * 100) + "%"; level: 2
+                   MouseArea { anchors.fill: parent; onClicked: nexa3d.workspace = true } }
+            Chip { visible: nexaCode.busy; label: "Code"
+                   value: (nexaCode.job.message || "") + " " + Math.round((nexaCode.job.progress || 0) * 100) + "%"; level: 2
+                   MouseArea { anchors.fill: parent; onClicked: nexaCode.openPanel() } }
+            Row {
+                objectName: "statusIcons"
+                spacing: 6
+                StatusIcon { visible: nexa.visionSending; glyphCode: 0xE7B3; label: "Đang gửi ảnh"; value: "Gemini"; level: 2 }
+                StatusIcon { glyphCode: 0xE720; label: "Mic"; value: (nexa.status.mic && nexa.status.mic.ok) ? "bật" : "lỗi"
+                             level: (nexa.status.mic && nexa.status.mic.ok) ? 1 : 3 }
+                StatusIcon { glyphCode: 0xE722; label: "Camera"; value: nexa.cameraOn ? "ĐANG DÙNG" : "tắt"; level: nexa.cameraOn ? 2 : 0
+                             onClicked: gesturePanel.visible = !gesturePanel.visible }
+                StatusIcon { glyphCode: 0xE99A; label: "AI"; value: (nexa.status.ai && nexa.status.ai.ok) ? "Gemini" : "Cơ bản"
+                             level: (nexa.status.ai && nexa.status.ai.ok) ? 1 : 2 }
+                StatusIcon { glyphCode: 0xE8C1; label: "Nhận dạng giọng (STT)"
+                             value: (nexa.status.stt && nexa.status.stt.ready) ? nexa.status.stt.model : ((nexa.status.stt && nexa.status.stt.loading) ? "đang nạp" : "chưa sẵn sàng")
+                             level: (nexa.status.stt && nexa.status.stt.ready) ? 1 : 2 }
+                StatusIcon { glyphCode: 0xE767; label: "Giọng nói"
+                             value: (nexa.status.tts && nexa.status.tts.backend) ? nexa.status.tts.backend : ((nexa.status.tts && nexa.status.tts.chain && nexa.status.tts.chain.length) ? "chờ" : "chữ")
+                             level: (nexa.status.tts && nexa.status.tts.backend) ? 1 : 0 }
+                StatusIcon { glyphCode: 0xE71B; label: "Bridge trình duyệt"
+                             value: (nexa.status.bridge && nexa.status.bridge.connected) ? nexa.status.bridge.browsers.join(", ") : "chưa nối"
+                             level: (nexa.status.bridge && nexa.status.bridge.connected) ? 1 : 0 }
+                StatusIcon { glyphCode: nexa.status.autonomy === "full" ? 0xE785 : 0xE72E; label: "Quyền"
+                             value: nexa.status.autonomy === "full" ? "TOÀN QUYỀN" : "tiêu chuẩn"
+                             level: nexa.status.autonomy === "full" ? 2 : 1 }
+            }
+            Rectangle { implicitWidth: 1; implicitHeight: 24; color: win.panelBorder; Layout.leftMargin: 4; Layout.rightMargin: 4 }
+            HeaderButton { glyphCode: 0xE713; tip: "Cài đặt"; onClicked: settingsPopup.open() }
+            HeaderButton { glyphCode: 0xE73F; tip: "Thu gọn thành quả cầu nổi (nhấp đúp để mở lại)"; onClicked: win.enterCompact(true) }
+            HeaderButton { glyphCode: 0xE7E8; tip: "Thoát NEXA"; hoverTint: "#fb7185"; onClicked: nexa.quit() }
+        }
+
+        // Nội dung chính
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: 14
+
+            // NEXA: 2 cột (quả cầu | hội thoại) hoặc xếp dọc khi trình xem 3D mở bên phải
+            GridLayout {
+                id: mainGrid
+                objectName: "mainGrid"
+                Layout.fillWidth: !win.codeShown
+                Layout.preferredWidth: win.codeShown ? win.sideNexaWidth : -1
+                Layout.maximumWidth: win.codeShown ? win.sideNexaWidth : Number.POSITIVE_INFINITY
+                Layout.fillHeight: true
+                columns: win.stacked ? 1 : 2
+                columnSpacing: 14; rowSpacing: 10
+                // Cột quả cầu
+                Item {
+                    id: orbCol
+                    objectName: "orbCol"
+                    Layout.fillHeight: !win.stacked
+                    Layout.fillWidth: win.stacked
+                    Layout.preferredWidth: win.stacked ? -1 : win.width * 0.46
+                    Layout.minimumWidth: win.stacked ? 0 : 380
+                    Layout.preferredHeight: win.stacked ? Math.max(300, mainGrid.height * 0.45) : -1
+                    readonly property bool dockTight: width < 470
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 8
+                        Item {
+                            id: orbArea
+                            objectName: "orbArea"
+                            Layout.fillWidth: true; Layout.fillHeight: true
+                            // vòng CPU / RAM / GPU / độ trễ AI: cần đủ chỗ cho nhãn số liệu
+                            readonly property bool ringOn: nexa.sysStats.cpu !== undefined && Math.min(width, height) >= 300
+                            StatsRing {
+                                id: statsRing
+                                objectName: "statsRing"
+                                anchors.fill: parent
+                                visible: orbArea.ringOn
+                                stats: nexa.sysStats
+                                accent: win.stateAccent
+                            }
+                            Orb {
+                                id: mainOrb
+                                anchors.centerIn: parent
+                                width: orbArea.ringOn ? Math.min(orbArea.width, orbArea.height) * 0.84 : orbArea.width
+                                height: orbArea.ringOn ? width : orbArea.height
+                                appState: nexa.state; micLevel: nexa.micLevel; outLevel: nexa.outLevel; outBands: nexa.outBands; effects: nexa.effects
+                            }
+                            MouseArea { anchors.fill: parent; onDoubleClicked: nexa.wake() }
+                            Text {
+                                visible: nexa.showFps
+                                anchors.left: parent.left; anchors.top: parent.top
+                                text: "FPS " + mainOrb.measuredFps.toFixed(0); color: "#34506e"; font.pixelSize: 10
+                            }
+                        }
+                        // Chip trạng thái: màu theo trạng thái, chấm nhấp nháy khi đang hoạt động
+                        Rectangle {
+                            id: statePill
+                            objectName: "statePill"
+                            Layout.alignment: Qt.AlignHCenter
+                            readonly property real maxW: orbCol.width - 20
+                            Layout.preferredWidth: Math.min(maxW, pillRow.implicitWidth + 30)
+                            Layout.preferredHeight: 34
+                            radius: 17
+                            color: Qt.rgba(win.stateAccent.r, win.stateAccent.g, win.stateAccent.b, 0.12)
+                            border.color: Qt.rgba(win.stateAccent.r, win.stateAccent.g, win.stateAccent.b, 0.75)
+                            Row {
+                                id: pillRow
+                                anchors.centerIn: parent
+                                spacing: 8
+                                Rectangle {
+                                    id: stateDot
+                                    width: 10; height: 10; radius: 5; anchors.verticalCenter: parent.verticalCenter
+                                    color: win.stateAccent
+                                    readonly property bool live: nexa.state !== "STANDBY" && nexa.state !== "INITIALIZING"
+                                    onLiveChanged: if (!live) opacity = 1
+                                    SequentialAnimation on opacity {
+                                        running: stateDot.live; loops: Animation.Infinite
+                                        NumberAnimation { to: 0.25; duration: 600; easing.type: Easing.InOutSine }
+                                        NumberAnimation { to: 1; duration: 600; easing.type: Easing.InOutSine }
+                                    }
+                                }
+                                Text { id: pillLabel; objectName: "stateLabel"; text: nexa.stateLabel; color: "white"; font.pixelSize: 15; font.bold: true }
+                                Text {
+                                    visible: nexa.stateDetail.length > 0 && nexa.state !== "STANDBY"
+                                    width: Math.min(implicitWidth, Math.max(0, statePill.maxW - 30 - 18 - pillLabel.implicitWidth - 8))
+                                    text: "· " + nexa.stateDetail; color: win.textDim; font.pixelSize: 13; elide: Text.ElideRight
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                            }
+                        }
+                        Rectangle {
+                            Layout.alignment: Qt.AlignHCenter
+                            Layout.preferredWidth: Math.min(orbCol.width - 20, heard.implicitWidth + 30)
+                            Layout.preferredHeight: 30; radius: 15
+                            color: "#0b1a33"; border.color: nexa.listeningSpeech ? win.cyan : win.panelBorder
+                            visible: nexa.heardText.length > 0 || nexa.listeningSpeech
+                            Text { id: heard; anchors.centerIn: parent; width: Math.min(implicitWidth, parent.width - 24)
+                                   elide: Text.ElideRight; color: "white"; font.pixelSize: 13
+                                   text: nexa.listeningSpeech ? "Em đang nghe…" : "Em nghe: " + nexa.heardText }
+                        }
+                        // Điều khiển tạm khóa sau lệnh dừng
+                        Rectangle {
+                            visible: nexa.controlPaused
+                            Layout.alignment: Qt.AlignHCenter
+                            Layout.preferredWidth: Math.min(orbCol.width - 20, pausedRow.implicitWidth + 24)
+                            Layout.preferredHeight: pausedRow.implicitHeight + 12
+                            radius: 12; color: "#1f1a0a"; border.color: "#b7791f"
+                            RowLayout {
+                                id: pausedRow; anchors.centerIn: parent; spacing: 10
+                                Text { text: "Điều khiển đang tạm khóa sau lệnh dừng."; color: "#fbbf24"; font.pixelSize: 13 }
+                                NButton { text: "▶ Tiếp tục"; tint: "#34d399"; font.pixelSize: 12; onClicked: nexa.resumeControl() }
+                            }
+                        }
+                        // Dock nổi + nút DỪNG KHẨN CẤP
+                        RowLayout {
+                            Layout.alignment: Qt.AlignHCenter
+                            Layout.bottomMargin: 2
+                            spacing: orbCol.dockTight ? 8 : 14
+                            Rectangle {
+                                id: dock
+                                objectName: "dock"
+                                implicitWidth: dockRow.implicitWidth + (orbCol.dockTight ? 14 : 22)
+                                implicitHeight: dockRow.implicitHeight + 14
+                                radius: orbCol.dockTight ? height / 2 : 22
+                                color: "#d90a1428"
+                                border.color: Qt.rgba(win.stateAccent.r, win.stateAccent.g, win.stateAccent.b, 0.35)
+                                Row {
+                                    id: dockRow
+                                    anchors.centerIn: parent
+                                    spacing: orbCol.dockTight ? 0 : 4
+                                    DockButton {
+                                        primary: true; tint: win.stateAccent; showCaption: !orbCol.dockTight
+                                        size: orbCol.dockTight ? 40 : 46
+                                        glyphCode: 0xE720
+                                        pulsing: nexa.state === "LISTENING"
+                                        caption: nexa.state === "STANDBY" ? "Đánh thức" : "Nói"
+                                        tip: nexa.state === "STANDBY" ? "Đánh thức NEXA (Ctrl+Alt+N)" : "Nhấn để nói"
+                                        onClicked: nexa.state === "STANDBY" ? nexa.wake() : nexa.pushToTalk()
+                                    }
+                                    DockButton { glyphCode: 0xE708; caption: "Nghỉ"; tip: "Cho NEXA nghỉ"
+                                                 showCaption: !orbCol.dockTight; size: orbCol.dockTight ? 36 : 42
+                                                 enabled: nexa.state !== "STANDBY"; onClicked: nexa.sleep() }
+                                    DockButton { glyphCode: 0xE815; caption: "Cử chỉ"; tint: win.purple; active: nexa.cameraOn
+                                                 tip: nexa.cameraOn ? "Tắt cử chỉ tay (tắt camera)" : "Bật cử chỉ tay (bật camera)"
+                                                 showCaption: !orbCol.dockTight; size: orbCol.dockTight ? 36 : 42
+                                                 onClicked: nexa.toggleGestures() }
+                                    DockButton { glyphCode: 0xF158; caption: "3D"; active: nexa3d.workspace || win.viewer3dOpen
+                                                 tip: "Mô hình 3D"
+                                                 showCaption: !orbCol.dockTight; size: orbCol.dockTight ? 36 : 42
+                                                 onClicked: nexa3d.workspace = !nexa3d.workspace }
+                                    DockButton { glyphCode: 0xE943; caption: "Code"; tint: win.blue; active: nexaCode.panelOpen
+                                                 tip: "Sinh code"
+                                                 showCaption: !orbCol.dockTight; size: orbCol.dockTight ? 36 : 42
+                                                 onClicked: nexaCode.panelOpen ? nexaCode.closePanel() : nexaCode.openPanel() }
+                                    DockButton { glyphCode: 0xE711; caption: "Hủy"; tint: "#fbbf24"; visible: win.busy
+                                                 tip: "Hủy tác vụ đang chạy"
+                                                 showCaption: !orbCol.dockTight; size: orbCol.dockTight ? 36 : 42
+                                                 onClicked: nexa.cancelTask() }
+                                    DockButton { id: moreBtn; glyphCode: 0xE712; caption: "Thêm"; tip: "Bảng cử chỉ, chuột bằng tay…"
+                                                 showCaption: !orbCol.dockTight; size: orbCol.dockTight ? 36 : 42
+                                                 onClicked: moreMenu.popup(moreBtn, 0, -moreMenu.implicitHeight - 6) }
+                                }
+                                Menu {
+                                    id: moreMenu
+                                    padding: 6
+                                    background: Rectangle { implicitWidth: 240; radius: 10; color: "#0b1a33"; border.color: win.panelBorder }
+                                    DarkMenuItem { text: gesturePanel.visible ? "Đóng bảng cử chỉ" : "Bảng cử chỉ…"
+                                                   onTriggered: gesturePanel.visible = !gesturePanel.visible }
+                                    DarkMenuItem { text: nexa.airMouse ? "Tắt chuột bằng tay" : "Chuột bằng tay"
+                                                   enabled: nexa.cameraOn; onTriggered: nexa.toggleAirMouse() }
+                                    DarkMenuItem { text: "Xóa hội thoại"; onTriggered: nexa.clearConversation() }
+                                    DarkMenuItem { text: "Thu gọn thành quả cầu nổi"; onTriggered: win.enterCompact(true) }
+                                }
+                            }
+                            // DỪNG KHẨN CẤP: luôn hiện, viền đỏ, tách khỏi dock
+                            Item {
+                                id: stopBtn
+                                objectName: "stopButton"
+                                implicitWidth: Math.max(stopDisc.width, stopCap.visible ? stopCap.implicitWidth : 0)
+                                implicitHeight: stopDisc.height + (stopCap.visible ? stopCap.implicitHeight + 3 : 0)
+                                Rectangle {
+                                    id: stopDisc
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    width: orbCol.dockTight ? 44 : 50; height: width; radius: width / 2
+                                    color: stopMouse.pressed ? "#9f1239" : stopMouse.containsMouse ? "#4c0519" : "#1c0812"
+                                    border.color: "#fb7185"; border.width: 2
+                                    scale: stopMouse.pressed ? 0.94 : 1
+                                    Rectangle { anchors.centerIn: parent; width: parent.width * 0.32; height: width; radius: 3
+                                                color: stopMouse.containsMouse ? "white" : "#fb7185" }
+                                }
+                                Text { id: stopCap; visible: !orbCol.dockTight; anchors.top: stopDisc.bottom; anchors.topMargin: 3
+                                       anchors.horizontalCenter: parent.horizontalCenter
+                                       text: "DỪNG"; color: "#fb7185"; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1 }
+                                MouseArea { id: stopMouse; anchors.fill: parent; hoverEnabled: true; onClicked: nexa.stop() }
+                                NTip { visible: stopMouse.containsMouse; text: "DỪNG KHẨN CẤP (Ctrl+Alt+Esc)" }
+                            }
+                        }
+                    }
+                }
+
+                // Hội thoại: tin nhắn + thẻ tác vụ xen giữa (không còn khung "Tác vụ" riêng)
+                Rectangle {
+                    id: chatPanel
+                    Layout.fillWidth: true; Layout.fillHeight: true
+                    color: win.panel; radius: 14; border.color: win.panelBorder
+                    ColumnLayout {
+                        anchors.fill: parent; anchors.margins: 12; spacing: 8
+                        RowLayout {
+                            Text { text: "Hội thoại"; color: "white"; font.pixelSize: 16; font.bold: true }
+                            Item { Layout.fillWidth: true }
+                            Text { text: nexa.foreground.length > 3 ? "Cửa sổ đích: " + nexa.foreground : ""; color: win.textDim
+                                   font.pixelSize: 11; elide: Text.ElideMiddle; Layout.maximumWidth: 300 }
+                            NButton { text: "Xóa"; font.pixelSize: 11; onClicked: nexa.clearConversation() }
+                        }
+                        Item {
+                            Layout.fillWidth: true; Layout.fillHeight: true
+                            ListView {
+                                id: chat
+                                objectName: "chat"
+                                anchors.fill: parent
+                                clip: true; spacing: 8
+                                model: nexa.timeline
+                                onCountChanged: Qt.callLater(function() { chat.positionViewAtEnd() })
+                                delegate: Item {
+                                    id: row
+                                    required property var modelData
+                                    readonly property bool isTask: modelData.kind === "task"
+                                    readonly property bool isUser: modelData.role === "user"
+                                    width: chat.width
+                                    height: isTask ? taskCard.height : bubble.height
+                                    Rectangle {
+                                        id: bubble
+                                        visible: !row.isTask
+                                        anchors.right: row.isUser ? parent.right : undefined
+                                        anchors.left: row.isUser ? undefined : parent.left
+                                        width: Math.min(chat.width * 0.82, msg.implicitWidth + 26)
+                                        height: msg.implicitHeight + meta.implicitHeight + 18
+                                        radius: 12
+                                        color: row.isUser ? "#10284d" : "#101a33"
+                                        border.color: row.isUser ? "#1d4ed8" : "#5b21b6"
+                                        Column {
+                                            anchors.fill: parent; anchors.margins: 9; spacing: 2
+                                            Text { id: meta; color: win.textDim; font.pixelSize: 10
+                                                   text: (row.isUser ? (row.modelData.source === "voice" ? "Anh Sơn (giọng nói)" : "Anh Sơn") : "NEXA") + " · " + (row.modelData.time || "") }
+                                            Text { id: msg; width: Math.min(chat.width * 0.82 - 26, implicitWidth); text: row.isTask ? "" : (row.modelData.text || "")
+                                                   color: "white"; font.pixelSize: 14; wrapMode: Text.Wrap; textFormat: Text.PlainText }
+                                        }
+                                    }
+                                    // Thẻ tác vụ: một bước = một thẻ, cập nhật tại chỗ (đang chạy → xong / lỗi)
+                                    Rectangle {
+                                        id: taskCard
+                                        visible: row.isTask
+                                        readonly property color sc: win.taskColor(row.modelData.status)
+                                        readonly property bool spinning: row.isTask && (row.modelData.status === "running" || row.modelData.status === "queued")
+                                        x: 14
+                                        width: Math.min(chat.width - 28, tRow.implicitWidth + 30)
+                                        height: 34
+                                        radius: 9
+                                        color: Qt.rgba(sc.r, sc.g, sc.b, 0.07)
+                                        border.color: Qt.rgba(sc.r, sc.g, sc.b, 0.4)
+                                        Rectangle { x: 6; width: 3; height: parent.height - 14; radius: 1.5; anchors.verticalCenter: parent.verticalCenter
+                                                    color: taskCard.sc }
+                                        Row {
+                                            id: tRow
+                                            x: 18; anchors.verticalCenter: parent.verticalCenter
+                                            spacing: 8
+                                            Item {
+                                                width: 16; height: 16; anchors.verticalCenter: parent.verticalCenter
+                                                Text { anchors.centerIn: parent; visible: taskCard.spinning; text: win.glyph(0xE9F5)
+                                                       font.family: win.iconFont; font.pixelSize: 14; color: taskCard.sc
+                                                       RotationAnimator on rotation { from: 0; to: 360; duration: 1600; loops: Animation.Infinite
+                                                                                      running: taskCard.spinning } }
+                                                Text { anchors.centerIn: parent; visible: !taskCard.spinning; text: win.glyph(win.taskGlyph(row.modelData.status))
+                                                       font.family: win.iconFont; font.pixelSize: 13; font.bold: true; color: taskCard.sc }
+                                            }
+                                            Text { id: tTitle; text: row.isTask ? (row.modelData.title || "") : ""; color: "white"; font.pixelSize: 13; font.bold: true
+                                                   anchors.verticalCenter: parent.verticalCenter }
+                                            Text { text: row.isTask ? (row.modelData.text || "") : ""; color: win.textDim; font.pixelSize: 12; elide: Text.ElideRight
+                                                   visible: text.length > 0 && text !== tTitle.text
+                                                   width: Math.min(implicitWidth, Math.max(40, chat.width - 28 - 30 - 18 - 16 - tTitle.implicitWidth - tTime.implicitWidth - 32))
+                                                   anchors.verticalCenter: parent.verticalCenter }
+                                            Text { id: tTime; text: row.modelData.time || ""; color: "#4b6a8a"; font.pixelSize: 10
+                                                   anchors.verticalCenter: parent.verticalCenter }
+                                        }
+                                    }
+                                }
+                            }
+                            Column {
+                                anchors.centerIn: parent
+                                visible: chat.count === 0
+                                spacing: 6
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: win.glyph(0xE8F2); font.family: win.iconFont
+                                       font.pixelSize: 34; color: "#1e3a5f" }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Vỗ tay, nói “Nexa ơi” hoặc gõ lệnh bên dưới"
+                                       color: win.textDim; font.pixelSize: 13 }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Kết quả từng lệnh sẽ hiện ngay trong hội thoại."
+                                       color: "#4b6a8a"; font.pixelSize: 12 }
+                            }
+                        }
+                        RowLayout {
+                            spacing: 8
+                            TextField {
+                                id: input
+                                Layout.fillWidth: true
+                                placeholderText: "Nhập lệnh cho NEXA… (ví dụ: mở Notepad, đặt âm lượng 30 phần trăm)"
+                                color: "white"; font.pixelSize: 14
+                                placeholderTextColor: "#5b7a99"
+                                background: Rectangle { radius: 10; color: "#081226"; border.color: input.activeFocus ? win.cyan : win.panelBorder }
+                                onAccepted: { if (text.trim().length) { nexa.sendText(text); text = "" } }
+                            }
+                            NButton { text: "Gửi"; onClicked: { if (input.text.trim().length) { nexa.sendText(input.text); input.text = "" } } }
+                        }
+                        Text { Layout.fillWidth: true; visible: text.length > 0; text: nexa.statusText
+                               color: "#5f7fa0"; font.pixelSize: 11; elide: Text.ElideRight }
+                    }
+                }
+            }

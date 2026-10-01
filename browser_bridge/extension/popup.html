@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <title>NEXA Bridge</title>
+  <style>
+    body { font-family: "Segoe UI", sans-serif; background: #050b18; color: #d8f3ff; width: 320px; margin: 0; padding: 14px; }
+    h1 { font-size: 16px; margin: 0 0 4px; color: #22d3ee; letter-spacing: 1px; }
+    .sub { font-size: 11px; color: #7aa5c4; margin-bottom: 10px; }
+    .status { font-size: 12px; padding: 6px 8px; border-radius: 6px; background: #0b1a33; margin-bottom: 10px; }
+    .ok { color: #34d399; } .bad { color: #f87171; }
+    .tab { border: 1px solid #1e3a5f; border-radius: 8px; padding: 8px; margin-bottom: 6px; font-size: 12px; }
+    .tab.current { border-color: #22d3ee; }
+    .title { font-weight: 600; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    button { background: linear-gradient(90deg, #0891b2, #6d28d9); color: white; border: 0; border-radius: 6px;
+             padding: 5px 10px; cursor: pointer; font-size: 12px; }
+    button:disabled { opacity: .4; cursor: default; }
+    #msg { font-size: 12px; margin-top: 8px; min-height: 16px; }
+  </style>
+</head>
+<body>
+  <h1>NEXA — by NXS MEDIA</h1>
+  <div class="sub">Gắn một tab YouTube để NEXA tạm dừng/phát tiếp bằng cử chỉ.</div>
+  <div class="status" id="status">Đang kiểm tra…</div>
+  <div id="tabs"></div>
+  <div id="msg"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

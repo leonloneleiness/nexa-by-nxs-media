@@ -1,0 +1,13 @@
+belt_drive|{}
+belt_drive|{"belt":"SPA"}
+belt_drive|{"belt":"HTD5M","teeth_driver":18,"teeth_driven":36}
+chain_drive|{}
+shaft_coupling|{}
+shaft_coupling|{"coupling_type":"rigid","bore_mm":8,"bore2_mm":10}
+ball_screw|{}
+linear_guide|{}
+spring|{}
+spring|{"ends":"closed"}
+spring|{"ends":"open"}
+spring|{"spring_type":"extension","free_length_mm":60,"wire_d_mm":1.5,"outer_d_mm":12}
+spring|{"spring_type":"torsion"}

@@ -1,0 +1,596 @@
+"""Trạng thái viewer 3D (nguồn sự thật duy nhất) — giọng nói, cử chỉ, chuột và Gemini đều thao tác qua đây.
+
+Viewer Qt Quick 3D chỉ HIỂN THỊ trạng thái này (và nội suy mượt tới camera đích ở tốc độ khung hình). Thông báo tới UI
+qua notify(kind, data):
+  3d_viewer   — mở/đóng mô hình (dữ liệu tĩnh: bộ phận, vật liệu, cây, kế hoạch tách, cảnh báo)
+  3d_state    — hiển thị/ẩn/cô lập/tâm điểm/chọn/tách/chế độ xem/thông tin bộ phận
+  3d_camera   — yaw/pitch/zoom/đích camera (tối đa ~30 Hz khi xoay bằng tay)
+  3d_gesture  — HUD cử chỉ (trạng thái, nhãn, thanh giữ)
+"""
+from __future__ import annotations
+
+import threading
+import time
+from pathlib import Path
+from typing import Any, Callable
+
+import numpy as np
+
+from nexa.three_d.asset_store import AssetStore
+from nexa.three_d.generation.assembly import POSITION_VI
+from nexa.three_d.geometry.gltf import read_glb
+from nexa.three_d.models import Model3DProject, Part3D
+from nexa.three_d.motion import MeshGeom, infer_motions
+from nexa.three_d.part_resolver import ResolveResult, resolve
+from nexa.three_d.validator import safe_relpath
+from nexa.utils.logging import get_logger
+
+log = get_logger("3d.viewer")
+
+DIM_LABELS = {"length": "dài", "width": "rộng", "height": "cao", "diameter": "đường kính", "pitch": "bước ren",
+              "thread_length": "chiều dài ren", "across_flats": "cạnh lục giác", "head_height": "cao đầu",
+              "head_diameter": "đường kính đầu", "socket_size": "lỗ lục giác", "stator_diameter": "đường kính stator",
+              "stator_height": "cao stator", "blades": "số lá", "wheelbase": "khoảng cách trục", "chord": "dây cung",
+              "module": "module", "teeth": "số răng", "pitch_diameter": "đường kính chia", "tip_diameter": "đường kính đỉnh",
+              "root_diameter": "đường kính chân", "face_width": "bề rộng răng", "bore": "lỗ trục", "outer_diameter": "đường kính ngoài",
+              "inner_diameter": "đường kính trong", "thickness": "dày", "bolt_holes": "số lỗ", "bolt_circle": "vòng lỗ",
+              "hole_diameter": "đường kính lỗ", "hub_diameter": "đường kính cổ", "hub_height": "cao cổ", "size": "cỡ",
+              "plate_length": "dài tấm", "plate_width": "rộng tấm", "plate_thickness": "dày tấm", "holes": "số lỗ",
+              "fillet": "bán kính bo"}
+COUNT_DIMS = {"blades", "teeth", "bolt_holes", "holes", "module"}
+Notify = Callable[[str, dict], None]
+
+
+def format_dims(dims: dict[str, float], limit: int = 6) -> str:
+    out = []
+    for k, v in dims.items():
+        if k in ("length", "width", "height") and len(dims) > 3 and any(x not in ("length", "width", "height") for x in dims):
+            continue
+        label = DIM_LABELS.get(k, k)
+        out.append(f"{label} {v:g}" + ("" if k in COUNT_DIMS else " mm"))
+        if len(out) >= limit:
+            break
+    return ", ".join(out)
+
+
+class ViewerController:
+    def __init__(self, store: AssetStore, notify: Notify | None = None,
+                 on_open_change: Callable[[bool], None] | None = None) -> None:
+        self.store = store
+        self._notify = notify
+        self.on_open_change = on_open_change
+        self._lock = threading.RLock()
+        self.project: Model3DProject | None = None
+        self.locked = False
+        self._last_cam_emit = 0.0
+        self.gesture_latency_ms = 0.0
+        self.fps = 0.0
+        self._reset_state()
+
+    # ----- nội bộ -----
+    def _reset_state(self) -> None:
+        self.visible: dict[str, bool] = {}
+        self.isolate: list[str] = []
+        self.focus_ids: list[str] = []
+        self.selected: str | None = None
+        self.exploded = False
+        self.explode_seq = 0
+        self.assembled_override: set[str] = set()
+        self.part_rot: dict[str, list[float]] = {}
+        self.render_mode = "normal"
+        self.animating = False
+        self.motion_mode = "none"
+        self.info_part: str | None = None
+        self.yaw, self.pitch = 35.0, 20.0
+        self.zoom = 1.0
+        self.target: list[float] = [0.0, 0.0, 0.0]
+        self.frame_radius = 1.0
+        self.message = ""
+
+    def emit(self, kind: str, data: dict) -> None:
+        if self._notify:
+            try:
+                self._notify(kind, data)
+            except Exception:
+                log.exception("notify viewer lỗi")
+
+    @property
+    def is_open(self) -> bool:
+        return self.project is not None
+
+    def _parts(self) -> list[Part3D]:
+        return self.project.parts if self.project else []
+
+    def _part(self, pid: str) -> Part3D | None:
+        return self.project.part(pid) if self.project else None
+
+    def state(self) -> dict:
+        with self._lock:
+            return {"open": self.is_open, "project_id": self.project.id if self.project else "",
+                    "visible": dict(self.visible), "isolate": list(self.isolate), "focus": list(self.focus_ids),
+                    "selected": self.selected or "", "exploded": self.exploded, "explode_seq": self.explode_seq,
+                    "assembled": sorted(self.assembled_override), "part_rot": {k: list(v) for k, v in self.part_rot.items()},
+                    "render_mode": self.render_mode, "animating": self.animating, "info": self.part_info(self.info_part) if self.info_part else {},
+                    "message": self.message, "locked": self.locked}
+
+    def camera(self) -> dict:
+        with self._lock:
+            return {"yaw": round(self.yaw, 3), "pitch": round(self.pitch, 3), "zoom": round(self.zoom, 4),
+                    "target": [round(x, 3) for x in self.target], "radius": round(self.frame_radius, 3)}
+
+    def _push_state(self) -> None:
+        self.emit("3d_state", self.state())
+
+    def _push_camera(self, throttle: bool = False) -> None:
+        now = time.monotonic()
+        if throttle and now - self._last_cam_emit < 1 / 45:
+            return
+        self._last_cam_emit = now
+        self.emit("3d_camera", self.camera())
+
+    def _need_open(self) -> tuple[bool, str]:
+        if not self.is_open:
+            return False, "Chưa mở mô hình nào. Anh nói 'tạo …' hoặc 'mở mô hình vừa tạo' trước."
+        return True, ""
+
+    # ----- mở/đóng -----
+    def open(self, project_id: str) -> tuple[bool, str]:
+        project = self.store.load(project_id)
+        with self._lock:
+            self.project = project
+            self._reset_state()
+            self.visible = {p.id: True for p in project.parts}
+            b = project.bounds
+            self.target = list(b.center)
+            self.frame_radius = max(1e-3, b.radius)
+        pdir = self.store.project_dir(project.id)
+        data = self._static_payload(project, str(pdir))
+        self.emit("3d_viewer", data)
+        self._push_state()
+        self._push_camera()
+        if self.on_open_change:
+            self.on_open_change(True)
+        msg = f"Đã mở mô hình {project.name}."
+        if project.status != "ready":
+            msg += " Lưu ý: mô hình CHƯA ĐẠT tiêu chuẩn chất lượng."
+        if not project.has_assembly:
+            msg += " Mô hình chưa có cấu trúc assembly."
+        return True, msg
+
+    def close(self) -> tuple[bool, str]:
+        with self._lock:
+            was = self.is_open
+            self.project = None
+            self._reset_state()
+        self.emit("3d_viewer", {"open": False})
+        if was and self.on_open_change:
+            self.on_open_change(False)
+        return True, "Đã đóng trình xem 3D."
+
+    @staticmethod
+    def mesh_geom(project: Model3DProject, pdir: str) -> MeshGeom:
+        """Hình học lưới từng bộ phận (đọc GLB riêng, lười) để đặt tâm quay/bản lề đúng khớp thật."""
+        by_id = {p.id: p for p in project.parts}
+
+        def load(pid: str) -> tuple[np.ndarray, np.ndarray] | None:
+            p = by_id.get(pid)
+            if p is None or not p.asset:
+                return None
+            f = safe_relpath(Path(pdir), p.asset)
+            if not f.is_file():
+                return None
+            doc = read_glb(f.read_bytes())
+            verts, faces, n = [], [], 0
+            for node in doc.nodes:
+                for pr in node.primitives:
+                    verts.append(pr.mesh.vertices)
+                    faces.append(pr.mesh.faces + n)
+                    n += len(pr.mesh.vertices)
+            if not verts:
+                return None
+            return np.concatenate(verts), np.concatenate(faces)
+        return MeshGeom(load)
+
+    def _static_payload(self, project: Model3DProject, pdir: str) -> dict:
+        by_id = {p.id: p for p in project.parts}
+
+        def chain(p: Part3D) -> list[dict]:
+            out, cur, depth = [], p, 0
+            while cur is not None and depth < 32:
+                if cur.explode_distance > 0:
+                    out.append({"order": cur.explode_order, "v": [x * cur.explode_distance for x in cur.explode_vector]})
+                cur = by_id.get(cur.parent_id) if cur.parent_id else None
+                depth += 1
+            return out
+        orders = sorted({p.explode_order for p in project.parts if p.explode_distance > 0}) or [1]
+        try:
+            motions, motion_mode = infer_motions(project.category, project.parts, self.mesh_geom(project, pdir))
+        except Exception:
+            log.exception("suy ra chuyển động lỗi")
+            motions, motion_mode = {}, "none"
+        self.motion_mode = motion_mode
+        parts = []
+        for p in project.parts:
+            parts.append({"id": p.id, "name": p.name_vi, "name_en": p.name_en, "category": p.category,
+                          "parent": p.parent_id or "", "asset": p.asset, "pivot": p.pivot,
+                          "bounds": p.bounds.to_dict(), "explode": chain(p), "position": POSITION_VI.get(p.position_tag, ""),
+                          "group": p.group, "material": p.material, "triangles": p.triangles,
+                          "lod1": (project.metadata.get("lods") or {}).get(p.id, ""),
+                          "motion": motions.get(p.id, [])})
+        mats = [m.to_dict() for m in project.materials]
+        q = project.quality_report or {}
+        return {"open": True, "id": project.id, "name": project.name, "dir": pdir, "category": project.category,
+                "reference_source": project.metadata.get("reference_source", ""),
+                "parts": parts, "materials": mats, "bounds": project.bounds.to_dict(), "radius": project.bounds.radius,
+                "explode_orders": orders, "motion_mode": motion_mode, "warnings": list(project.warnings), "status": project.status,
+                "quality_score": project.quality_score, "quality_status": q.get("status", ""),
+                "has_assembly": project.has_assembly, "supported": project.supported_category,
+                "mode": project.generation_mode, "provider": project.provider, "metadata": {
+                    k: project.metadata.get(k) for k in ("conceptual", "dimensionally_specified", "geometry_validated",
+                                                         "manufacturing_unverified", "assembly_confidence",
+                                                         "segmentation_confidence", "technical_thread", "ai_review_used")},
+                "thumbnail": project.thumbnail_path, "triangles": project.triangle_count}
+
+    # ----- thông tin bộ phận -----
+    def part_info(self, pid: str | None) -> dict:
+        p = self._part(pid) if pid else None
+        if p is None:
+            return {}
+        mat = self.project.material(p.material) if self.project else None
+        return {"id": p.id, "name": p.name_vi, "name_en": p.name_en, "category": p.category,
+                "position": POSITION_VI.get(p.position_tag, p.position_tag), "function": p.function,
+                "dimensions": p.dimensions, "dimensions_text": format_dims(p.dimensions),
+                "material": mat.name if mat else p.material, "confidence": p.confidence,
+                "joint": p.joint_axis is not None, "parent": (self._part(p.parent_id).name_vi
+                                                              if p.parent_id and self._part(p.parent_id) else "")}
+
+    def describe(self, pid: str) -> str:
+        info = self.part_info(pid)
+        if not info:
+            return ""
+        s = f"{info['name']}"
+        if info.get("dimensions_text"):
+            s += f": {info['dimensions_text']}"
+        if info.get("material"):
+            s += f"; vật liệu {info['material'].lower()}"
+        if info.get("function"):
+            s += f". {info['function']}"
+        return s
+
+    # ----- tìm bộ phận -----
+    def resolve(self, query: str, allow_multiple: bool = False) -> ResolveResult:
+        with self._lock:
+            return resolve(self._parts(), query, selected=self.selected, allow_multiple=allow_multiple,
+                           model_name=self.project.name.split(" ")[0] if self.project else "")
+
+    def _frame_parts(self, ids: list[str]) -> None:
+        ps = [self._part(i) for i in ids if self._part(i)]
+        if not ps:
+            return
+        lo = np.min([p.bounds.min for p in ps], axis=0)
+        hi = np.max([p.bounds.max for p in ps], axis=0)
+        # tâm: cộng độ lệch tách nếu đang tách để khung đúng chỗ bộ phận đang hiển thị
+        off = np.zeros(3)
+        if self.exploded:
+            offs = [np.sum([np.asarray(c["v"]) for c in self._chain(p)], axis=0) if self._chain(p) else np.zeros(3) for p in ps]
+            off = np.mean(offs, axis=0)
+        self.target = ((lo + hi) / 2 + off).tolist()
+        self.frame_radius = max(1e-3, float(np.linalg.norm(hi - lo)) / 2)
+        self.zoom = 1.0
+
+    def _chain(self, p: Part3D) -> list[dict]:
+        out, cur, depth = [], p, 0
+        while cur is not None and depth < 32:
+            if cur.explode_distance > 0 and cur.id not in self.assembled_override:
+                out.append({"v": [x * cur.explode_distance for x in cur.explode_vector]})
+            cur = self._part(cur.parent_id) if cur.parent_id else None
+            depth += 1
+        return out
+
+    # ----- lệnh -----
+    def focus(self, query: str) -> tuple[bool, str, ResolveResult | None]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg, None
+        r = self.resolve(query)
+        if not r.ok:
+            return False, r.message, r
+        with self._lock:
+            self.focus_ids = list(r.part_ids)
+            self.selected = r.part_ids[0]
+            self.info_part = r.part_ids[0] if len(r.part_ids) == 1 else None
+            for pid in r.part_ids:
+                self.visible[pid] = True
+            self._frame_parts(r.part_ids)
+        self._push_state()
+        self._push_camera()
+        if len(r.part_ids) == 1:
+            return True, "Đây là " + self.describe(r.part_ids[0]), r
+        names = sorted({self._part(i).name_vi.split(' số')[0] for i in r.part_ids if self._part(i)})
+        return True, f"Đang xem cả cụm {len(r.part_ids)} bộ phận: {', '.join(names[:4])}.", r
+
+    def isolate_parts(self, query: str) -> tuple[bool, str, ResolveResult | None]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg, None
+        r = self.resolve(query, allow_multiple=True)
+        if not r.ok:
+            return False, r.message, r
+        with self._lock:
+            self.isolate = list(r.part_ids)
+            self.focus_ids = list(r.part_ids)
+            self.selected = r.part_ids[0]
+            self._frame_parts(r.part_ids)
+        self._push_state()
+        self._push_camera()
+        return True, f"Đã tách riêng {self._names(r.part_ids)}.", r
+
+    def hide(self, query: str) -> tuple[bool, str, ResolveResult | None]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg, None
+        r = self.resolve(query, allow_multiple=True)
+        if not r.ok:
+            return False, r.message, r
+        with self._lock:
+            for pid in r.part_ids:
+                self.visible[pid] = False
+            self.focus_ids = [f for f in self.focus_ids if f not in r.part_ids]
+            if self.selected in r.part_ids:
+                self.selected = None
+                self.info_part = None
+        self._push_state()
+        return True, f"Đã ẩn {self._names(r.part_ids)}.", r
+
+    def show_all(self) -> tuple[bool, str]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg
+        with self._lock:
+            self.visible = {p.id: True for p in self._parts()}
+            self.isolate = []
+            self.focus_ids = []
+            self.info_part = None
+            b = self.project.bounds
+            self.target, self.frame_radius, self.zoom = list(b.center), max(1e-3, b.radius), 1.0
+        self._push_state()
+        self._push_camera()
+        return True, "Đã hiện lại toàn bộ mô hình."
+
+    def show_info(self, query: str) -> tuple[bool, str, ResolveResult | None]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg, None
+        r = self.resolve(query)
+        if not r.ok:
+            return False, r.message, r
+        pid = r.part_ids[0]
+        with self._lock:
+            self.info_part = pid
+            self.selected = pid
+        self._push_state()
+        return True, self.describe(pid), r
+
+    # ----- thao tác theo id (nhấp chuột trong viewer / cây bộ phận) -----
+    def apply_ids(self, action: str, ids: list[str]) -> tuple[bool, str]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg
+        ids = [i for i in ids if self._part(i)]
+        if not ids:
+            return False, "Không có bộ phận nào."
+        with self._lock:
+            if action == "focus":
+                self.focus_ids, self.selected = list(ids), ids[0]
+                self.info_part = ids[0] if len(ids) == 1 else None
+                for pid in ids:
+                    self.visible[pid] = True
+                self._frame_parts(ids)
+            elif action == "hide":
+                for pid in ids:
+                    self.visible[pid] = False
+            elif action == "show":
+                for pid in ids:
+                    self.visible[pid] = True
+            elif action == "toggle":
+                for pid in ids:
+                    self.visible[pid] = not self.visible.get(pid, True)
+            elif action == "isolate":
+                self.isolate, self.focus_ids, self.selected = list(ids), list(ids), ids[0]
+                self._frame_parts(ids)
+            else:
+                return False, "Thao tác không hợp lệ."
+        self._push_state()
+        if action in ("focus", "isolate"):
+            self._push_camera()
+        return True, self._names(ids)
+
+    def select(self, pid: str) -> None:
+        with self._lock:
+            if self._part(pid) is None:
+                self.selected = None
+                self.info_part = None
+            else:
+                self.selected = pid
+                self.info_part = pid
+        self._push_state()
+
+    def explode(self) -> tuple[bool, str]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg
+        if not self.project.has_assembly or not any(p.explode_distance > 0 for p in self._parts()):
+            return False, "Mô hình chưa có cấu trúc assembly nên không tách bộ phận được."
+        with self._lock:
+            if self.exploded:
+                return True, "Mô hình đang ở trạng thái tách rồi."
+            self.exploded = True
+            self.assembled_override.clear()
+            self.explode_seq += 1
+            b = self.project.bounds
+            self.target, self.frame_radius = list(b.center), max(1e-3, b.radius * 1.6)
+        self._push_state()
+        self._push_camera()
+        note = " (hướng tách ước lượng)" if self.project.metadata.get("build", {}).get("explosion") == "heuristic_radial" else ""
+        return True, f"Đã tách các bộ phận theo trình tự tháo lắp{note}."
+
+    def collapse(self) -> tuple[bool, str]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg
+        with self._lock:
+            if not self.exploded:
+                return True, "Mô hình đang ở trạng thái lắp sẵn."
+            self.exploded = False
+            self.assembled_override.clear()
+            self.explode_seq += 1
+            b = self.project.bounds
+            self.target, self.frame_radius = list(b.center), max(1e-3, b.radius)
+        self._push_state()
+        self._push_camera()
+        return True, "Đã lắp mô hình lại."
+
+    # ----- chuyển động -----
+    def set_animating(self, on: bool) -> tuple[bool, str]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg
+        if on and self.locked:
+            return False, "Tương tác đang khóa nên chưa chạy chuyển động được."
+        if on and self.motion_mode == "none":
+            return False, "Mô hình này chưa có bộ phận nào chuyển động được."
+        with self._lock:
+            if self.animating == on:
+                return True, "Mô hình đang chuyển động rồi." if on else "Mô hình đang đứng yên rồi."
+            self.animating = on
+        self._push_state()
+        if not on:
+            return True, "Đã dừng chuyển động."
+        if self.motion_mode == "turntable":
+            return True, "Mô hình này không có bộ phận chuyển động riêng, em cho nó xoay trưng bày."
+        return True, "Đã cho mô hình chuyển động."
+
+    def toggle_animation(self) -> tuple[bool, str]:
+        return self.set_animating(not self.animating)
+
+    def reset_view(self) -> tuple[bool, str]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg
+        with self._lock:
+            self.yaw, self.pitch, self.zoom = 35.0, 20.0, 1.0
+            self.focus_ids = []
+            self.info_part = None
+            b = self.project.bounds
+            self.target = list(b.center)
+            self.frame_radius = max(1e-3, b.radius * (1.6 if self.exploded else 1.0))
+        self._push_state()
+        self._push_camera()
+        return True, "Đã đặt lại góc nhìn."
+
+    def rotate_view(self, dyaw: float = 0.0, dpitch: float = 0.0, source: str = "voice") -> tuple[bool, str]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg
+        with self._lock:
+            self.yaw = ((self.yaw + dyaw + 180.0) % 360.0) - 180.0
+            self.pitch = max(-85.0, min(85.0, self.pitch + dpitch))
+        self._push_camera(throttle=source == "gesture")
+        return True, f"Đã xoay mô hình (yaw {self.yaw:.0f}°, pitch {self.pitch:.0f}°)."
+
+    def zoom_view(self, factor: float) -> tuple[bool, str]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg
+        with self._lock:
+            self.zoom = max(0.12, min(8.0, self.zoom / max(1e-3, factor)))
+        self._push_camera()
+        return True, "Đã phóng to." if factor > 1 else "Đã thu nhỏ."
+
+    def rotate_part(self, query: str, degrees: float, axis: str = "y") -> tuple[bool, str, ResolveResult | None]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg, None
+        r = self.resolve(query)
+        if not r.ok:
+            return False, r.message, r
+        idx = {"x": 0, "y": 1, "z": 2}.get(axis, 1)
+        with self._lock:
+            for pid in r.part_ids:
+                rot = self.part_rot.setdefault(pid, [0.0, 0.0, 0.0])
+                rot[idx] = ((rot[idx] + degrees + 180.0) % 360.0) - 180.0
+            self.selected = r.part_ids[0]
+        self._push_state()
+        return True, f"Đã quay {self._names(r.part_ids)} {degrees:g} độ.", r
+
+    def reset_part(self, query: str) -> tuple[bool, str, ResolveResult | None]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg, None
+        r = self.resolve(query, allow_multiple=True)
+        if not r.ok:
+            return False, r.message, r
+        with self._lock:
+            for pid in r.part_ids:
+                self.part_rot.pop(pid, None)
+                if self.exploded:
+                    self.assembled_override.add(pid)
+        self._push_state()
+        return True, f"Đã đưa {self._names(r.part_ids)} về vị trí lắp.", r
+
+    def set_render_mode(self, mode: str) -> tuple[bool, str]:
+        ok, msg = self._need_open()
+        if not ok:
+            return False, msg
+        if mode not in ("normal", "xray", "wireframe"):
+            return False, "Chế độ hiển thị không hợp lệ."
+        with self._lock:
+            self.render_mode = mode
+        self._push_state()
+        return True, {"normal": "Đã về chế độ hiển thị thường.", "xray": "Đã bật chế độ X-quang.",
+                      "wireframe": "Đã bật chế độ khung dây."}[mode]
+
+    def _names(self, ids: list[str]) -> str:
+        names = [self._part(i).name_vi for i in ids if self._part(i)]
+        if len(names) <= 2:
+            return " và ".join(n.lower() for n in names)
+        return f"{len(names)} bộ phận"
+
+    # ----- cử chỉ -----
+    def apply_gesture(self, ev: Any) -> None:
+        """Sự kiện từ ViewerGestureStateMachine (luồng camera)."""
+        if self.locked or not self.is_open:
+            return
+        if ev.kind == "rotate":
+            # kiểu trackball, giống kéo chuột: tay đưa lên = mặt trước ngửa lên = camera hạ xuống
+            self.rotate_view(ev.dyaw, -ev.dpitch, source="gesture")
+            lat = ev.extra.get("latency_ms") if isinstance(ev.extra, dict) else None
+            if lat is not None:
+                self.gesture_latency_ms = 0.8 * self.gesture_latency_ms + 0.2 * float(lat)
+        elif ev.kind == "zoom":
+            self.zoom_view(ev.factor)
+        elif ev.kind == "explode":
+            ok, msg = self.explode()
+            self.emit("3d_gesture", {"state": "ANIMATING", "label": msg if ok else msg, "progress": 1.0, "event": "explode"})
+        elif ev.kind == "collapse":
+            ok, msg = self.collapse()
+            self.emit("3d_gesture", {"state": "ANIMATING", "label": msg, "progress": 1.0, "event": "collapse"})
+        elif ev.kind == "motion_toggle":
+            ok, msg = self.toggle_animation()
+            self.emit("3d_gesture", {"state": "IDLE", "label": msg, "progress": 1.0, "event": "motion_toggle"})
+        elif ev.kind == "hud":
+            self.emit("3d_gesture", {"state": ev.state, "label": ev.label, "progress": ev.progress})
+
+    def lock(self, locked: bool, reason: str = "") -> None:
+        with self._lock:
+            self.locked = locked
+            if locked:
+                self.animating = False
+        self.emit("3d_gesture", {"state": "LOCKED" if locked else "IDLE",
+                                 "label": ("Tương tác đang khóa — " + reason) if locked else "Đã mở khóa tương tác",
+                                 "progress": 0.0})
+        self._push_state()
+
+    def perf(self) -> dict:
+        return {"viewer_fps": round(self.fps, 1), "gesture_latency_ms": round(self.gesture_latency_ms, 1)}
+

@@ -1,0 +1,59 @@
+# NEXA — thư viện chạy. Đã cài và kiểm tra trên Windows 11 x64 + Python 3.11.9 (09/2026).
+# Phiên bản trong ngoặc là bản đã kiểm tra thực tế.
+
+# Giao diện Qt Quick / QML (6.11.2)
+PySide6>=6.8,<6.12
+
+# Âm thanh & tín hiệu (numpy 2.4.6, scipy 1.17.1, sounddevice 0.5.6, miniaudio 1.71)
+numpy>=2.0,<2.5
+scipy>=1.13,<1.18
+sounddevice>=0.5,<0.6
+miniaudio>=1.59,<2
+
+# Nhận dạng tiếng Việt cục bộ (faster-whisper 1.2.1 + ctranslate2; CPU hoặc GPU NVIDIA)
+faster-whisper>=1.1,<1.3
+# cuBLAS cho CUDA 12 — để nhận dạng chạy trên GPU NVIDIA (cuDNN đã có sẵn trong ctranslate2). Máy không có GPU
+# NVIDIA thì gói này vô hại: NEXA tự dùng CPU.
+nvidia-cublas-cu12>=12.4,<13
+
+# Đọc văn bản: edge-tts (online, 7.2.8) + WinRT SpeechSynthesis (offline, giọng Windows)
+edge-tts>=7.0,<8
+winrt-runtime>=3.2,<4
+winrt-Windows.Foundation>=3.2,<4
+winrt-Windows.Foundation.Collections>=3.2,<4
+winrt-Windows.Media.Control>=3.2,<4
+winrt-Windows.Media.SpeechSynthesis>=3.2,<4
+winrt-Windows.Storage.Streams>=3.2,<4
+
+# Thị giác: MediaPipe Tasks Hand Landmarker (1.0.1). mediapipe tự kéo theo opencv-contrib-python;
+# KHÔNG cài thêm opencv-python để tránh hai bản cv2 xung đột.
+mediapipe>=1.0,<1.1
+
+# Gemini — Google Gen AI SDK chính thức (2.25.0)
+google-genai>=2.20,<3
+
+# Điều khiển Windows
+pywin32>=306
+pywinauto==0.6.9
+pyautogui==0.9.54
+pycaw>=20240210
+comtypes>=1.4
+psutil>=6.0
+mss>=9.0
+Pillow>=10.0
+Send2Trash>=1.8
+
+# Cấu hình
+PyYAML>=6.0
+python-dotenv>=1.0
+
+# Mô hình 3D (docs/three_d.md): kernel CSG manifold3d 3.5.3 (boolean bền vững, dùng trong OpenSCAD/Blender),
+# fast-simplification 0.2.0 (giảm lưới/LOD). Viewer dùng Qt Quick 3D có sẵn trong PySide6.
+manifold3d>=3.5,<4
+fast-simplification>=0.2,<0.3
+# Mức 3 miễn phí: gọi Hugging Face Spaces (FLUX, TRELLIS, Hunyuan3D) — gradio_client 2.7.1 (phụ thuộc đã có sẵn).
+gradio_client>=2.7,<3
+
+# Sinh code (docs/code.md): tô màu cú pháp Pygments 2.21.0 (theme One Dark), kiểm tra tĩnh Python pyflakes 4.0.0
+pygments>=2.18,<3
+pyflakes>=3.2,<5

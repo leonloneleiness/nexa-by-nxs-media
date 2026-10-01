@@ -1,0 +1,30 @@
+# Bí mật và cấu hình cục bộ
+.env
+.env.*
+!.env.example
+config/settings.yaml
+config/*.tmp
+
+# Môi trường, cache, build
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+*.spec
+release/
+
+# Model và dữ liệu lớn (tải bằng scripts/download_models.py)
+models/*
+!models/README.md
+
+# Log và dữ liệu riêng
+logs/
+*.log
+NEXA_*.png
+
+# Dữ liệu và kết quả thí nghiệm nhận dạng (docs/research_asr.md)
+data/
+results/

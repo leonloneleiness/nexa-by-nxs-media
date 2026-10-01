@@ -1,0 +1,236 @@
+# NEXA — cấu hình mẫu. Lần chạy đầu, NEXA sao chép tệp này thành config/settings.yaml (không đưa vào Git).
+# Có thể chỉnh trực tiếp hoặc trong giao diện Cài đặt. KHÔNG đặt API key ở đây — dùng .env.
+# audio.input_device / output_device: tên thiết bị như trong Cài đặt (null = mặc định Windows).
+# monitors.source / target: được ghi khi anh chọn trong Cài đặt > Màn hình (định danh thiết bị ổn định).
+# ai.model: rỗng = lấy GEMINI_MODEL trong .env.
+# files.*: {Desktop}, {Documents}, {Downloads}, {Pictures} là thư mục thật của Windows (kể cả khi OneDrive chuyển hướng).
+audio:
+  input_device: null
+  output_device: null
+  preferred_hostapi: MME
+  clap:
+    mode: single
+    sensitivity: 0.55
+    min_level_dbfs: -42.0
+    double_min_gap_ms: 120
+    double_max_gap_ms: 700
+    debounce_ms: 110
+    cooldown_ms: 1500
+    calibration_seconds: 2.0
+  vad:
+    start_margin_db: 10.0
+    end_margin_db: 6.0
+    min_speech_ms: 250
+    end_silence_ms: 600
+    max_utterance_s: 12.0
+    listen_timeout_s: 8.0
+    pre_roll_ms: 300
+  echo_tail_ms: 300
+session:
+  idle_timeout_s: 60
+  conversation_idle_timeout_s: 300
+  greeting: Chào anh Sơn, em là Nexa. Em sẵn sàng.
+power:
+  keep_display_awake: false  # bật: giữ màn hình sáng, nút nguồn/ngủ/gập nắp không làm gì trong phiên
+  clap_wake_guard: true   # máy không tự ngủ (màn hình vẫn tắt) để NEXA nghe vỗ tay
+  screen_off: true        # "cho máy ngủ" = tắt màn hình
+  away_after_s: 300       # vỗ tay sau 5 phút vắng: mở NEXA và chào đầy đủ
+  wake_greeting: ''       # rỗng = chào theo buổi sáng/chiều/tối
+  button_turns_off_display: true  # khi canh gác: nút nguồn/nút ngủ chỉ tắt màn hình (trả lại khi thoát)
+  lid_keep_awake: false   # khi canh gác: gập nắp không ngủ (cẩn thận khi cho máy vào túi)
+  auto_unlock: false      # vỗ tay khi máy khóa: tự gõ mã mở khóa (cần cài dịch vụ; mã lưu mã hóa, KHÔNG để ở đây)
+  no_lock: false          # khuyên dùng: khi canh gác, KHÔNG đòi mật khẩu lúc thức dậy (khỏi gõ mã); trả lại khi tắt NEXA
+stt:
+  model: small
+  compute_type: int8
+  beam_size: 3
+  cpu_threads: 0
+  language: vi
+  bias_mode: context      # none | static | context (thêm tên ứng dụng đang mở vào gợi ý) — docs/research_asr.md
+  context_max_terms: 12
+research:
+  record_corpus: false    # true = lưu mỗi câu nói (WAV + chữ nhận dạng) vào %LOCALAPPDATA%/NEXA/asr_corpus
+  corpus_dir: ''
+  max_items: 5000
+  speaker_id: S01         # mã người nói ẩn danh
+tts:
+  backend: auto
+  edge_voice: en-US-AndrewMultilingualNeural
+  edge_pitch_hz: 0
+  winrt_voice: ''
+  winrt_pitch: null
+  effect: jarvis
+  effect_strength: 0.5
+  rate: 5
+  volume: 1.0
+ai:
+  provider: gemini
+  model: ''
+  max_history_turns: 12
+  max_output_tokens: 1024
+  temperature: 0.6
+  max_calls_per_session: 300
+  max_retries: 2
+  thinking_level: minimal
+gestures:
+  enabled_on_start: false
+  camera_index: 0
+  camera_width: 640
+  camera_height: 480
+  camera_fps: 30
+  num_hands: 1
+  control_hand: any
+  show_landmarks: true
+monitors:
+  source: null
+  target: null
+media:
+  backend: auto
+files:
+  allowed_roots:
+  - '{Desktop}'
+  - '{Documents}'
+  - '{Downloads}'
+  - '{Pictures}'
+  screenshot_dir: '{Pictures}/NEXA'
+  search_limit: 50
+apps:
+  custom: []
+  browser_path: ''
+  search_engine: https://www.google.com/search?q={query}
+ui:
+  effects: full
+  overlay: true
+  sounds: true
+  compact_on_start: false
+  show_fps: false
+  side_by_side: true        # ứng dụng/trang NEXA mở ra được xếp CẠNH NEXA (không che, không ẩn NEXA)
+  side_by_side_ratio: 0.4
+  theme: arc_reactor
+  stats_ring: true
+  hud:                      # HUD góc màn hình (click-through): phụ đề + thẻ kết quả
+    enabled: true
+    screen: primary         # primary | cursor | tên thiết bị, ví dụ '\.\DISPLAY2'
+    corner: bottom_right    # bottom_right | bottom_left | top_right | top_left
+    subtitles: true
+    cards: true
+    card_seconds: 5
+safety:
+  autonomy: standard
+hotkeys:
+  emergency_stop: ctrl+alt+escape
+  wake: ctrl+alt+n
+code:                     # sinh code — docs/code.md; chỉ sao chép/chạy thử khi anh bấm
+  enabled: true
+  models: [gemini-3.8-flash, gemini-3.5-flash]
+  thinking: medium
+  timeout_s: 180
+  repair_rounds: 2
+  with_tests: true
+  comment_language: vi      # vi | en
+  run_timeout_s: 30
+  run_file_in: nexa         # nexa = kết quả hiện trong NEXA | console = cửa sổ riêng
+  html_preview: true        # xem trang HTML ngay trong NEXA
+  python_path: ""           # trống = Python của NEXA
+  save_dir: ""              # trống = Documents/NEXA Code
+  gesture:                  # bảng Sinh code mở + camera bật: nắm tay = lưu, búng tay = chạy thử, hai ngón = cuộn
+    auto_camera: false      # tự bật camera khi mở bảng
+    fist_hold_ms: 700
+    scroll_gain: 1600       # tay càng xa điểm neo cuộn càng nhanh
+    invert_scroll: false
+three_d:                  # mô hình 3D — docs/three_d.md; API key cloud chỉ đặt trong .env
+  enabled: true
+  default_mode: auto      # auto | parametric | cloud
+  provider: auto          # auto | tripo | meshy | hf_space | none (NEXA_3D_PROVIDER trong .env được ưu tiên)
+  cache_dir: ''           # rỗng = %LOCALAPPDATA%/NEXA/3d_cache
+  cache_size_mb: 4096
+  keep_generated_assets: true
+  max_asset_mb: 200
+  max_triangles: 2000000
+  max_texture_size: 4096
+  candidate_count: 2      # ứng viên cloud ở chất lượng cao (1–3)
+  refinement_rounds: 1    # 0–2
+  quality_threshold: 90
+  generation_timeout_s: 900
+  max_cost_per_job: 0     # credit; 0 = không giới hạn
+  ai_review: true         # Gemini chấm ảnh 6 góc (một phần điểm)
+  use_gemini_planner: true
+  reference_images: auto  # auto | on | off
+  reference_image_model: gemini-3.1-flash-image
+  cloud_segmentation: true
+  tripo_model_version: v3.1-20260211
+  tripo_api: v3             # v3 (mặc định) | v2
+  tripo_texture_quality: detailed      # standard | detailed (+10 credit) | extreme (8K, +20)
+  tripo_texture_quality_high: extreme  # khi nói "chất lượng cao"
+  tripo_geometry_quality: detailed     # standard | detailed (Ultra, +20 credit)
+  tripo_auto_size: true     # kích thước thật do Tripo trả về
+  tripo_face_limit: 0       # 0 = Tripo tự chọn
+  tripo_segment_model: v2.0-20260430
+  cloud_segment_free_objects: false    # tách bộ phận vật thể tự do (+40 credit)
+  meshy_ai_model: latest
+  # mức 2: Gemini thiết kế vật thể tự do bằng CAD DSL (sửa lỗi + xem ảnh tinh chỉnh)
+  dsl_models: [gemini-3.8-flash, gemini-3.5-flash]
+  dsl_thinking: medium
+  dsl_timeout_s: 180
+  dsl_max_tokens: 24000
+  dsl_repair_rounds: 2
+  dsl_refine_rounds: 2
+  dsl_fallback_below: 55  # điểm mức 2 thấp hơn → thử thêm mức 3; 0 = tắt
+  # mức 3 miễn phí: Hugging Face Spaces (HF_TOKEN trong .env tăng hạn mức GPU)
+  hf_enabled: true
+  hf_prefer_with_token: true   # có HF_TOKEN → vật thể tự do dùng HF trước, mức 2 dự phòng
+  hf_image_space: black-forest-labs/FLUX.1-schnell
+  hf_3d_spaces: [trellis-community/TRELLIS, tencent/Hunyuan3D-2, tencent/Hunyuan3D-2.1]
+  hf_timeout_s: 840
+  hf_image_timeout_s: 180
+  hf_space_timeout_s: 360
+  hf_expected_s: 120
+  open_viewer_when_ready: true
+  viewer_auto_camera: false
+  viewer_triangle_budget: 1500000
+  gesture:
+    rotate_sensitivity: 110.0
+    rotate_deadzone: 0.25
+    acquire_ms: 200
+    fist_hold_ms: 500
+    open_hold_ms: 350
+    cooldown_ms: 700
+    animation_ms: 900
+    arm_timeout_ms: 3000
+    explode_max_speed: 1.8
+    inertia: 0.35
+    pitch_limit_deg: 85
+    zoom_two_fingers: true
+
+# Kịch bản làm việc: nói một câu trong phrases → NEXA mở và xếp cả bộ cửa sổ, rồi làm các việc kèm theo.
+# monitor: 1/2 theo vai trò trong Cài đặt > Màn hình (chỉ có một màn hình thì xếp hết lên đó).
+# zone (tùy chọn): mặc định keep = chỉ đưa sang đúng màn hình, giữ nguyên kích thước. Muốn xếp: full | left | right |
+#   top | bottom | left_third | center_third | right_third | left_two_thirds | right_two_thirds
+# Bước ứng dụng: app (tên như khi nói "mở …"), process (tên tiến trình để nhận cửa sổ), aumid (ứng dụng Store/MSIX).
+# Bước web: url + title (chữ có trong tiêu đề tab) — mở trong cửa sổ trình duyệt riêng.
+# Bước hành động: action: check_zalo. Ứng dụng đang mở thì dùng lại cửa sổ cũ.
+# Sửa một kịch bản ở đây sẽ thay toàn bộ danh sách steps của nó.
+routines:
+  bat_dau_lam_viec:
+    name: Bắt đầu làm việc
+    phrases: [bắt đầu làm việc, vào việc, bắt đầu ngày làm việc, chế độ làm việc]
+    steps:
+      - {label: Claude, app: Claude, aumid: "Claude_pzs8sxrjxfjjc!Claude", process: claude.exe, monitor: 1}
+      - {label: Zalo, app: Zalo, process: zalo.exe, title: Zalo, monitor: 1}
+      - {label: YouTube, url: "https://www.youtube.com", title: YouTube, monitor: 2}
+      - {label: ChatGPT, url: "https://chatgpt.com", title: ChatGPT, monitor: 2}
+      - {label: VS Code, app: Visual Studio Code, process: code.exe, monitor: 1}
+      - {label: Tin nhắn Zalo, action: check_zalo}
+# Nhận biết anh qua webcam (chạy cục bộ, cần camera cử chỉ đang bật; không lưu ảnh)
+attention:
+  presence_enabled: false      # rời máy ~away_after_s giây → dừng video + khóa Windows; quay lại → phát tiếp
+  away_after_s: 45
+  warning_s: 10
+  lock_on_away: true
+  pause_media_on_away: true
+  resume_media_on_back: true
+  privacy_guard: true          # có người nhìn từ phía sau → thu nhỏ cửa sổ nhạy cảm (sensitive_processes/titles)
+  head_target: commands        # off | commands | auto — chọn màn hình theo hướng quay đầu
+  head_move_cursor: true
+  head_auto_dwell_s: 0.8
+  head_calibration: {}         # nói "hiệu chỉnh hướng nhìn" để điền

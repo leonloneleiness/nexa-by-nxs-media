@@ -1,0 +1,40 @@
+# Ánh xạ và ngưỡng cử chỉ của NEXA. Xem docs/gestures.md.
+mapping:
+  point_right_hold: MOVE_WINDOW_TO_MONITOR_2
+  thumb_down_hold: MINIMIZE_ACTIVE_WINDOW
+  thumb_up_hold: RESTORE_LAST_MINIMIZED_WINDOW
+  fist_hold: YOUTUBE_PAUSE
+  open_palm_hold_after_fist: YOUTUBE_RESUME
+  two_fingers_hold: SCROLL_UP
+pose:
+  min_confidence: 0.6
+  vote_frames: 6
+  vote_ratio: 0.65
+hold:
+  hold_ms: 500
+  action_hold_ms: 650
+  still_speed: 0.9
+  deadzone: 0.5
+  resume_window_ms: 4000
+  release_ms: 250
+scroll:
+  repeat_ms: 180
+  notch_size: 2
+  invert_scroll: false
+timing:
+  cooldown_ms: 900
+  lost_hand_ms: 250
+  smoothing: 0.5
+calibration:
+  invert_x: false
+  invert_y: false
+mouse:
+  mapping: relative
+  gain: 900
+  accel: 0.7
+  pinch_on: 0.32
+  pinch_off: 0.48
+  drag_start: 0.35
+  scroll_step: 0.18
+  invert_scroll: false
+  yield_ms: 1000

@@ -1,0 +1,195 @@
+[store] 20260925-155415-aac5a4 uav            Mô hình UAV mini 4 cánh        issues=0
+      moving=4/25 pairs=4 diag=419
+[store] 20260925-155651-e650c3 humanoid       Robot hình người               issues=4
+    TRƯỢT KHỚP shoulder_left trên torso: tâm tiếp xúc dời 19.3 mm (tol 5.9) chain=['swing']
+    TRƯỢT KHỚP shoulder_right trên torso: tâm tiếp xúc dời 19.3 mm (tol 5.9) chain=['swing']
+    TRƯỢT KHỚP knee_left trên thigh_left: tâm tiếp xúc dời 22.3 mm (tol 5.0) chain=['swing', 'swing', 'swing']
+    TRƯỢT KHỚP knee_right trên thigh_right: tâm tiếp xúc dời 20.0 mm (tol 5.0) chain=['swing', 'swing', 'swing']
+      moving=26/28 pairs=13 diag=1875
+[store] 20260925-155852-a79004 quadruped      Chó robot                      issues=4
+    TRƯỢT KHỚP hip_front_left trên hip_ab_front_left: tâm tiếp xúc dời 2.8 mm (tol 2.4) chain=['swing']
+    TRƯỢT KHỚP hip_front_right trên hip_ab_front_right: tâm tiếp xúc dời 2.8 mm (tol 2.4) chain=['swing']
+    TRƯỢT KHỚP hip_rear_left trên hip_ab_rear_left: tâm tiếp xúc dời 3.9 mm (tol 2.4) chain=['swing']
+    TRƯỢT KHỚP hip_rear_right trên hip_ab_rear_right: tâm tiếp xúc dời 3.9 mm (tol 2.4) chain=['swing']
+      moving=21/30 pairs=16 diag=964
+[store] 20260925-212333-bdf695 generic        Bàn phím                       issues=0
+    mode=turntable
+[store] 20260925-212506-32eaf9 helicopter     Trực thăng                     issues=0
+      moving=10/19 pairs=1 diag=15258
+[store] 20260925-212620-08ffaf rover          Xe tự hành                     issues=0
+      moving=7/22 pairs=1 diag=1055
+[store] 20260925-212758-7e4cd7 generic        Khối hình hộp lục giác         issues=0
+    mode=turntable
+[store] 20260925-213546-e9692a generic        Con thuyền                     issues=0
+    mode=turntable
+[store] 20260925-213700-9c0eda humanoid       Robot hình người               issues=4
+    TRƯỢT KHỚP shoulder_left trên torso: tâm tiếp xúc dời 19.3 mm (tol 5.9) chain=['swing']
+    TRƯỢT KHỚP shoulder_right trên torso: tâm tiếp xúc dời 19.3 mm (tol 5.9) chain=['swing']
+    TRƯỢT KHỚP knee_left trên thigh_left: tâm tiếp xúc dời 22.3 mm (tol 5.0) chain=['swing', 'swing', 'swing']
+    TRƯỢT KHỚP knee_right trên thigh_right: tâm tiếp xúc dời 20.0 mm (tol 5.0) chain=['swing', 'swing', 'swing']
+      moving=26/28 pairs=13 diag=1875
+[store] 20260925-224519-3a12c5 generic        Con sư tử                      issues=0
+    mode=turntable
+[store] 20260925-224829-f5622b generic        Con thuyền HF                  issues=0
+    mode=turntable
+[store] 20260926-000654-7a8dfe rover          Xe tự hành sáu bánh            issues=0
+      moving=7/22 pairs=7 diag=1055
+[store] 20260926-000817-aae4c5 boat           Ca nô cao tốc                  issues=0
+      moving=1/9 pairs=1 diag=6480
+[store] 20260926-000901-a27ad5 humanoid       Mô hình robot                  issues=8
+    TRƯỢT KHỚP shoulder_left trên torso: tâm tiếp xúc dời 11.7 mm (tol 5.9) chain=['swing']
+    TRƯỢT KHỚP elbow_left trên upper_arm_left: tâm tiếp xúc dời 12.9 mm (tol 3.8) chain=['swing', 'swing']
+    TRƯỢT KHỚP shoulder_right trên torso: tâm tiếp xúc dời 14.4 mm (tol 5.9) chain=['swing']
+    TRƯỢT KHỚP elbow_right trên upper_arm_right: tâm tiếp xúc dời 13.4 mm (tol 3.8) chain=['swing', 'swing']
+    TRƯỢT KHỚP hip_left trên pelvis: tâm tiếp xúc dời 14.3 mm (tol 4.8) chain=['swing', 'swing']
+    TRƯỢT KHỚP knee_left trên thigh_left: tâm tiếp xúc dời 21.9 mm (tol 5.0) chain=['swing', 'swing', 'swing']
+    TRƯỢT KHỚP hip_right trên pelvis: tâm tiếp xúc dời 14.3 mm (tol 4.8) chain=['swing', 'swing']
+    TRƯỢT KHỚP knee_right trên thigh_right: tâm tiếp xúc dời 19.7 mm (tol 5.0) chain=['swing', 'swing', 'swing']
+      moving=26/28 pairs=13 diag=1876
+[store] 20260926-000953-0fec18 uav            UAV chi tiết                   issues=0
+      moving=4/26 pairs=4 diag=423
+[store] 20260926-001132-5a56f5 generic        xe tăng                        issues=0
+    mode=turntable
+[store] 20260926-101835-d26583 robot_arm      Cánh tay robot 6 trục          issues=1
+    TRƯỢT KHỚP wrist_2 trên wrist_1: tâm tiếp xúc dời 13.9 mm (tol 2.8) chain=['swing', 'swing', 'swing', 'swing']
+      moving=11/12 pairs=5 diag=1105
+[store] 20260926-102016-7de2f3 launch_vehicle Tên lửa đẩy                    issues=0
+    mode=turntable
+[store] 20260926-102412-5eaaf3 robot_vacuum   Robot hút bụi                  issues=2
+    TÁCH chassis <-> drive_wheel_right (cha-con): 1.0 -> 4.7 mm (tau 3.3, tol 3.2)  chainA=[] chainB=['spin']
+    TÁCH chassis <-> main_brush (cha-con): 0.5 -> 4.7 mm (tau 1.1, tol 3.2)  chainA=[] chainB=['spin']
+      moving=5/13 pairs=4 diag=648
+[store] 20260926-102624-c42ca4 agv            Robot giao hàng AGV            issues=0
+      moving=4/18 pairs=0 diag=1474
+[store] 20260926-102747-2aef57 uav            Drone AUV                      issues=0
+      moving=4/26 pairs=4 diag=423
+[store] 20260926-103011-fbec6f stepper_motor  Động cơ bước                   issues=0
+      moving=1/7 pairs=2 diag=152
+[store] 20260926-104038-b93f80 train          Tàu hỏa                        issues=0
+      moving=12/31 pairs=24 diag=64602
+[store] 20260926-105648-c99230 car            Xe hơi                         issues=0
+      moving=4/20 pairs=4 diag=5386
+[store] 20260926-105913-6ade5f bearing        Vòng bi 6204                   issues=0
+      moving=10/11 pairs=16 diag=68
+[store] 20260926-175454-0df5c5 uav            Mô hình UAV                    issues=0
+      moving=4/26 pairs=4 diag=423
+[store] 20260926-212841-143b93 uav            UAV Tiêu chuẩn                 issues=0
+      moving=4/26 pairs=4 diag=423
+[gen] uav            uav              issues=0
+      moving=4/26 pairs=4 diag=423
+[gen] bolt           bolt             issues=0
+    mode=turntable
+[gen] rover          rover            issues=0
+      moving=7/22 pairs=7 diag=1055
+[gen] humanoid       humanoid         issues=8
+    TRƯỢT KHỚP shoulder_left trên torso: tâm tiếp xúc dời 11.7 mm (tol 5.9) chain=['swing']
+    TRƯỢT KHỚP elbow_left trên upper_arm_left: tâm tiếp xúc dời 12.9 mm (tol 3.8) chain=['swing', 'swing']
+    TRƯỢT KHỚP shoulder_right trên torso: tâm tiếp xúc dời 14.4 mm (tol 5.9) chain=['swing']
+    TRƯỢT KHỚP elbow_right trên upper_arm_right: tâm tiếp xúc dời 13.4 mm (tol 3.8) chain=['swing', 'swing']
+    TRƯỢT KHỚP hip_left trên pelvis: tâm tiếp xúc dời 14.3 mm (tol 4.8) chain=['swing', 'swing']
+    TRƯỢT KHỚP knee_left trên thigh_left: tâm tiếp xúc dời 21.9 mm (tol 5.0) chain=['swing', 'swing', 'swing']
+    TRƯỢT KHỚP hip_right trên pelvis: tâm tiếp xúc dời 14.3 mm (tol 4.8) chain=['swing', 'swing']
+    TRƯỢT KHỚP knee_right trên thigh_right: tâm tiếp xúc dời 19.7 mm (tol 5.0) chain=['swing', 'swing', 'swing']
+      moving=26/28 pairs=13 diag=1876
+[gen] boat           boat             issues=0
+      moving=1/9 pairs=1 diag=6484
+[gen] yacht          boat             issues=0
+      moving=2/12 pairs=2 diag=17124
+[gen] quadruped      quadruped        issues=4
+    TRƯỢT KHỚP hip_front_left trên hip_ab_front_left: tâm tiếp xúc dời 4.4 mm (tol 2.4) chain=['swing']
+    TRƯỢT KHỚP hip_front_right trên hip_ab_front_right: tâm tiếp xúc dời 4.3 mm (tol 2.4) chain=['swing']
+    TRƯỢT KHỚP hip_rear_left trên hip_ab_rear_left: tâm tiếp xúc dời 5.1 mm (tol 2.4) chain=['swing']
+    TRƯỢT KHỚP hip_rear_right trên hip_ab_rear_right: tâm tiếp xúc dời 3.9 mm (tol 2.4) chain=['swing']
+      moving=21/30 pairs=16 diag=981
+[gen] helicopter     helicopter       issues=0
+      moving=10/19 pairs=0 diag=15250
+[gen] bearing        bearing          issues=0
+      moving=10/11 pairs=16 diag=68
+[gen] stepper        stepper_motor    issues=0
+      moving=1/7 pairs=2 diag=152
+[gen] gearbox        gearbox          issues=0
+      moving=7/28 pairs=8 diag=499
+[gen] cylinder       cylinder         issues=0
+      moving=2/9 pairs=0 diag=356
+[gen] valve          ball_valve       issues=1
+    TRƯỢT KHỚP ball trên body: tâm tiếp xúc dời 17.0 mm (tol 2.3) chain=['swing']
+      moving=3/9 pairs=8 diag=386
+[gen] flange_joint   pipe_fitting     issues=0
+    mode=turntable
+[gen] belt           belt_drive       issues=0
+      moving=4/9 pairs=4 diag=218
+[gen] chain          chain_drive      issues=0
+      moving=4/8 pairs=4 diag=682
+[gen] coupling       shaft_coupling   issues=0
+      moving=6/6 pairs=0 diag=174
+[gen] ballscrew      ball_screw       issues=0
+      moving=3/5 pairs=4 diag=506
+[gen] rail           linear_guide     issues=0
+      moving=2/4 pairs=0 diag=602
+[gen] spring         spring           issues=0
+    mode=turntable
+[gen] robot_arm      robot_arm        issues=1
+    TRƯỢT KHỚP wrist_3 trên wrist_2: tâm tiếp xúc dời 39.1 mm (tol 3.5) chain=['swing', 'swing', 'swing', 'swing', 'swing']
+      moving=11/12 pairs=5 diag=1164
+[gen] robot_arm_kuka robot_arm        issues=1
+    TRƯỢT KHỚP wrist_3 trên wrist_2: tâm tiếp xúc dời 67.6 mm (tol 5.8) chain=['swing', 'swing', 'swing', 'swing', 'swing']
+      moving=11/12 pairs=5 diag=1934
+[gen] robot_vacuum   robot_vacuum     issues=2
+    TÁCH chassis <-> drive_wheel_right (cha-con): 1.0 -> 4.7 mm (tau 3.3, tol 3.2)  chainA=[] chainB=['spin']
+    TÁCH chassis <-> main_brush (cha-con): 0.5 -> 4.7 mm (tau 4.7, tol 3.2)  chainA=[] chainB=['spin']
+      moving=5/14 pairs=4 diag=649
+[gen] agv            agv              issues=0
+      moving=7/15 pairs=0 diag=1256
+[gen] delivery       agv              issues=0
+      moving=4/18 pairs=0 diag=1146
+[gen] plane          fixed_wing       issues=1
+    TRƯỢT KHỚP rudder trên fin: tâm tiếp xúc dời 72.0 mm (tol 34.9) chain=['swing']
+      moving=5/13 pairs=6 diag=13926
+[gen] vtol           fixed_wing       issues=1
+    TRƯỢT KHỚP rudder trên fin: tâm tiếp xúc dời 15.7 mm (tol 7.6) chain=['swing']
+      moving=9/23 pairs=9 diag=2852
+[gen] car            car              issues=0
+      moving=4/21 pairs=4 diag=5416
+[gen] motorbike      motorbike        issues=0
+      moving=3/11 pairs=5 diag=2392
+[gen] scooter        motorbike        issues=1
+    TRƯỢT KHỚP fork trên frame: tâm tiếp xúc dời 28.0 mm (tol 26.6) chain=['swing']
+      moving=4/9 pairs=3 diag=2356
+[gen] ebike          motorbike        issues=1
+    TRƯỢT KHỚP fork trên frame: tâm tiếp xúc dời 31.6 mm (tol 20.5) chain=['swing']
+      moving=3/9 pairs=3 diag=2187
+[gen] excavator      excavator        issues=1
+    TRƯỢT KHỚP bucket trên stick: tâm tiếp xúc dời 126.3 mm (tol 63.0) chain=['swing', 'swing', 'swing', 'swing']
+      moving=9/12 pairs=4 diag=11508
+[gen] forklift       forklift         issues=0
+      moving=8/17 pairs=4 diag=5366
+[gen] crane          crane            issues=0
+      moving=15/20 pairs=8 diag=36366
+[gen] train          train            issues=0
+      moving=12/32 pairs=24 diag=64850
+[gen] cubesat        cubesat          issues=0
+      moving=2/7 pairs=2 diag=938
+[gen] rocket         launch_vehicle   issues=0
+    mode=turntable
+[gen] wind           wind_turbine     issues=0
+      moving=6/13 pairs=1 diag=149545
+[gen] solar          solar_array      issues=0
+    mode=turntable
+[gen] genset         generator_set    issues=0
+    mode=turntable
+[gen] pump           centrifugal_pump issues=1
+    TÁCH coupling <-> motor: 2.1 -> 9.4 mm (tau 0.37, tol 6.8)  chainA=['spin'] chainB=[]
+      moving=3/7 pairs=1 diag=1353
+[gen] tank           storage_tank     issues=0
+    mode=turntable
+[gen] bridge         bridge           issues=0
+    mode=turntable
+[gen] cable_bridge   bridge           issues=0
+    mode=turntable
+[gen] truss          steel_truss      issues=0
+    mode=turntable
+[gen] tower          lattice_tower    issues=0
+    mode=turntable
+[gen] bts            lattice_tower    issues=0
+    mode=turntable
+TOTAL ISSUES 46

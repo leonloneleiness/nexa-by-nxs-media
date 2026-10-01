@@ -1,0 +1,96 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+// Tạo mô hình 3D bằng văn bản + tiến độ job + mô hình gần đây. (Giọng nói dùng cùng luồng qua IntentRouter/Gemini.)
+Rectangle {
+    id: panel
+    signal closeRequested()
+    color: "#f00a1428"
+    radius: 16
+    border.color: "#16325a"
+    property var job: nexa3d.activeJob
+    readonly property color cyan: "#22d3ee"
+    readonly property color dim: "#8fb3d1"
+    readonly property var stateColor: ({"ready": "#34d399", "failed": "#fb7185", "cancelled": "#94a3b8", "needs_input": "#fbbf24"})
+
+    ColumnLayout {
+        anchors.fill: parent; anchors.margins: 16; spacing: 10
+        RowLayout {
+            Text { text: "Mô hình 3D"; color: "white"; font.pixelSize: 20; font.bold: true }
+            Item { Layout.fillWidth: true }
+            Text { color: nexa3d.providerStatus.ok ? "#34d399" : panel.dim; font.pixelSize: 11
+                   text: nexa3d.providerStatus.ok ? ("Cloud: " + nexa3d.providerStatus.name + " sẵn sàng") : "Cloud: chưa có API key · CAD tham số cục bộ vẫn chạy" }
+            Button { text: "✕"; flat: true; onClicked: panel.closeRequested()
+                     contentItem: Text { text: "✕"; color: "white"; font.pixelSize: 14 } background: Item {} }
+        }
+        Text { Layout.fillWidth: true; wrapMode: Text.Wrap; color: panel.dim; font.pixelSize: 12
+               text: "Nói hoặc gõ yêu cầu, ví dụ: “Tạo bu-lông M8 dài 30 mm, bước ren 1,25 mm”, “Tạo UAV mini bốn cánh, thân carbon màu đen, camera phía trước”, “Tạo robot hình chó, mỗi chân có ba khớp”. Nhóm hỗ trợ (dựng CAD tham số, có assembly): UAV, xe tự hành, robot hình người, robot chó, trực thăng, ốc vít và chi tiết cơ khí. Vật thể khác: best effort." }
+        RowLayout {
+            spacing: 8
+            TextField {
+                id: prompt
+                Layout.fillWidth: true
+                placeholderText: "Mô tả mô hình cần tạo…"
+                color: "white"; font.pixelSize: 14; placeholderTextColor: "#5b7a99"
+                background: Rectangle { radius: 10; color: "#081226"; border.color: prompt.activeFocus ? panel.cyan : "#16325a" }
+                onAccepted: go.clicked()
+            }
+            ComboBox { id: modeBox; model: ["auto", "parametric", "cloud"]; Layout.preferredWidth: 120
+                       ToolTip.visible: hovered; ToolTip.text: "auto: CAD tham số cho nhóm hỗ trợ · cloud: Tripo/Meshy (tốn credit)" }
+            CheckBox { id: hq; text: "Chất lượng cao"
+                       contentItem: Text { text: hq.text; color: "white"; leftPadding: hq.indicator.width + 4; verticalAlignment: Text.AlignVCenter } }
+            Button { id: go; text: "Tạo"; enabled: prompt.text.trim().length > 2
+                     onClicked: { nexa3d.generate(prompt.text, modeBox.currentText, hq.checked ? "high" : "standard"); prompt.text = "" } }
+        }
+        // ---------- job đang chạy ----------
+        Rectangle {
+            visible: panel.job && panel.job.id !== undefined
+            Layout.fillWidth: true
+            implicitHeight: jobCol.implicitHeight + 16
+            radius: 10; color: "#0b1a33"
+            border.color: panel.stateColor[panel.job.state] || panel.cyan
+            ColumnLayout {
+                id: jobCol
+                anchors.fill: parent; anchors.margins: 8; spacing: 4
+                RowLayout {
+                    Text { text: panel.job.label || ""; color: "white"; font.bold: true; font.pixelSize: 13 }
+                    Text { text: panel.job.terminal ? "" : Math.round((panel.job.progress || 0) * 100) + "%"; color: panel.cyan; font.pixelSize: 12 }
+                    Item { Layout.fillWidth: true }
+                    Text { text: (panel.job.elapsed || 0).toFixed(1) + " s"; color: panel.dim; font.pixelSize: 11 }
+                    Button { visible: !panel.job.terminal; text: "Hủy"; onClicked: nexa3d.cancelJob(panel.job.id) }
+                    Button { visible: panel.job.state === "ready" || (panel.job.state === "failed" && !!panel.job.project_id)
+                             text: panel.job.state === "ready" ? "Mở" : "Xem bản chưa đạt"; onClicked: nexa3d.openModel(panel.job.project_id) }
+                }
+                ProgressBar { Layout.fillWidth: true; value: panel.job.progress || 0; visible: !panel.job.terminal }
+                Text { Layout.fillWidth: true; wrapMode: Text.Wrap; color: "#c7d7ea"; font.pixelSize: 12; text: panel.job.message || "" }
+                Text { Layout.fillWidth: true; wrapMode: Text.Wrap; color: panel.dim; font.pixelSize: 11; visible: text.length > 0
+                       text: (panel.job.warnings || []).join(" · ") }
+            }
+        }
+        // ---------- mô hình gần đây ----------
+        Text { text: "Mô hình gần đây"; color: "white"; font.pixelSize: 14; font.bold: true }
+        GridView {
+            id: grid
+            Layout.fillWidth: true; Layout.fillHeight: true
+            clip: true
+            cellWidth: 170; cellHeight: 190
+            model: nexa3d.models
+            ScrollBar.vertical: ScrollBar {}
+            delegate: Rectangle {
+                width: 160; height: 180; radius: 10; color: gm.containsMouse ? "#12305a" : "#0b1a33"
+                border.color: modelData.status === "ready" ? "#1f9d8b" : "#7f1d1d"
+                Column {
+                    anchors.fill: parent; anchors.margins: 6; spacing: 4
+                    Image { width: 148; height: 120; fillMode: Image.PreserveAspectFit; asynchronous: true; cache: false
+                            source: modelData.thumb_url || "" }
+                    Text { width: 148; text: modelData.name; color: "white"; font.pixelSize: 12; elide: Text.ElideRight }
+                    Text { width: 148; color: panel.dim; font.pixelSize: 10; elide: Text.ElideRight
+                           text: Math.round(modelData.quality_score || 0) + "/100 · " + (modelData.status === "ready" ? "đạt" : "chưa đạt") }
+                }
+                MouseArea { id: gm; anchors.fill: parent; hoverEnabled: true; onClicked: nexa3d.openModel(modelData.id) }
+            }
+        }
+    }
+    Component.onCompleted: nexa3d.refreshModels()
+}

@@ -1,0 +1,543 @@
+"""Suy ra chuyển động cơ bản cho từng bộ phận (quay/dao động/trượt) từ loại mô hình, loại bộ phận, trục khớp và hộp bao.
+
+Chạy lúc mở viewer nên áp dụng cho cả mô hình cũ trong kho, mô hình CAD DSL và cloud. Toạ độ asset (+Y lên, +Z trước,
++X trái, mm), góc bằng độ. Mỗi bộ phận nhận một CHUỖI chuyển động: của chính nó trước, rồi của tổ tiên (đã lọc theo
+`carry`), để QML ghép thành một phép biến đổi mỗi khung hình:
+  spin  {a, c, s, carry}                 — quay liên tục s °/s quanh trục a qua tâm c
+  swing {a, c, amp, off, per, ph, carry} — góc = off + amp·sin(2π·τ/per + ph)
+  slide {a, amp, off, per, ph}           — dời = (off + amp·sin(2π·τ/per + ph))·a
+carry "all": mọi con cháu đi theo; "rot": chỉ con cháu đồng quay (bánh răng, puly, cánh…) đi theo.
+Không bộ phận nào chuyển động → cả mô hình xoay chậm như bàn xoay trưng bày.
+"""
+from __future__ import annotations
+
+import math
+from typing import Any, Iterable
+
+import numpy as np
+
+CO_ROT = {"gear", "pulley", "sprocket", "impeller", "rotor_blade", "blade", "spinner", "hub", "rotor_hub",
+          "coupling_hub", "spider", "propeller", "shaft", "rotor", "fan_rotor", "rim", "tire", "tyre", "brake_disc",
+          "spoke", "flywheel", "cam"}
+ROT_ROOTS = {"shaft", "gear", "pulley", "sprocket", "impeller", "coupling_hub", "rotor", "fan_rotor", "hub",
+             "rotor_hub", "flywheel"}
+WHEELS = {"wheel", "wheelset"}
+FAST_SPIN = {"propeller": 720.0, "rotor": 600.0, "fan_rotor": 600.0}
+BASE_SPIN = 120.0
+MODEL_SPIN = {"helicopter": 420.0, "wind_turbine": 30.0, "centrifugal_pump": 360.0, "stepper_motor": 90.0,
+              "shaft_coupling": 90.0}
+
+
+class _P:
+    __slots__ = ("id", "cat", "parent", "axis", "lo", "hi", "c", "size", "name")
+
+    def __init__(self, p: Any) -> None:
+        self.id = p.id
+        self.cat = (p.category or "").lower()
+        self.parent = p.parent_id or None
+        self.axis = _unit(p.joint_axis) if p.joint_axis is not None else None
+        self.lo = np.asarray(p.bounds.min, dtype=float)
+        self.hi = np.asarray(p.bounds.max, dtype=float)
+        self.c = (self.lo + self.hi) / 2
+        self.size = self.hi - self.lo
+        self.name = f"{p.id} {p.name_en or ''}".lower()
+
+
+def _unit(v: Iterable[float] | None) -> np.ndarray | None:
+    if v is None:
+        return None
+    a = np.asarray(list(v), dtype=float)
+    n = float(np.linalg.norm(a))
+    return a / n if n > 1e-9 else None
+
+
+def _canon(a: np.ndarray) -> np.ndarray:
+    """Đổi dấu để thành phần lớn nhất dương — trục ±X đều thành +X."""
+    return -a if a[int(np.argmax(np.abs(a)))] < 0 else a
+
+
+def _major(a: np.ndarray) -> int | None:
+    i = int(np.argmax(np.abs(a)))
+    return i if abs(a[i]) > 0.97 else None
+
+
+def _sym_axis(size: np.ndarray, tol: float = 0.2) -> int | None:
+    """Trục đối xứng tròn: trục mà hai kích thước vuông góc gần bằng nhau (trong tol). None nếu không tròn."""
+    best, err = None, tol
+    for i in range(3):
+        j, k = [x for x in range(3) if x != i]
+        m = max(size[j], size[k], 1e-9)
+        e = abs(size[j] - size[k]) / m
+        if e <= err:
+            best, err = i, e
+    return best
+
+
+def _axis_vec(i: int) -> np.ndarray:
+    v = np.zeros(3)
+    v[i] = 1.0
+    return v
+
+
+def _radius(p: _P, axis: np.ndarray) -> float:
+    i = _major(axis)
+    if i is None:
+        return float(np.max(p.size)) / 2
+    return float(max(p.size[j] for j in range(3) if j != i)) / 2
+
+
+def _r(v: np.ndarray | Iterable[float]) -> list[float]:
+    return [round(float(x), 4) for x in v]
+
+
+def spin(a: np.ndarray, c: np.ndarray, s: float, carry: str = "rot") -> dict:
+    return {"t": "spin", "a": _r(a), "c": _r(c), "s": round(float(s), 3), "carry": carry}
+
+
+def swing(a: np.ndarray, c: np.ndarray, amp: float, per: float, ph: float = 0.0, off: float = 0.0,
+          carry: str = "all") -> dict:
+    return {"t": "swing", "a": _r(a), "c": _r(c), "amp": round(float(amp), 3), "off": round(float(off), 3),
+            "per": round(float(per), 3), "ph": round(float(ph), 4), "carry": carry}
+
+
+def slide(a: np.ndarray, amp: float, per: float, ph: float = 0.0, off: float = 0.0) -> dict:
+    return {"t": "slide", "a": _r(a), "amp": round(float(amp), 3), "off": round(float(off), 3),
+            "per": round(float(per), 3), "ph": round(float(ph), 4), "carry": "all"}
+
+
+class _Builder:
+    def __init__(self, category: str, parts: list[Any]) -> None:
+        self.category = (category or "").lower()
+        self.ps = [_P(p) for p in parts]
+        self.by = {p.id: p for p in self.ps}
+        for p in self.ps:
+            if p.parent and p.parent not in self.by:
+                p.parent = None
+        self.kids: dict[str, list[_P]] = {}
+        for p in self.ps:
+            if p.parent:
+                self.kids.setdefault(p.parent, []).append(p)
+        self.own: dict[str, dict] = {}
+
+    # ----- tiện ích -----
+    def parent(self, p: _P) -> _P | None:
+        return self.by.get(p.parent) if p.parent else None
+
+    def has(self, *words: str, p: _P) -> bool:
+        return any(w in p.name for w in words)
+
+    def hinge(self, p: _P, axis: np.ndarray) -> np.ndarray:
+        """Tâm bản lề của bộ phận quay quanh trục (khi template không đặt pivot): khớp → tâm chính nó; bộ phận có cha là
+        khớp → tâm khớp cha; còn lại dời tâm ra mặt hướng về cha theo cạnh vuông góc dài nhất, cạnh còn lại kẹp tâm cha."""
+        par = self.parent(p)
+        if p.cat == "joint" or par is None:
+            return p.c.copy()
+        if par.cat == "joint":
+            return par.c.copy()
+        i = _major(axis)
+        if i is None:
+            return p.c.copy()
+        perp = [j for j in range(3) if j != i]
+        big = max(perp, key=lambda j: p.size[j])
+        other = perp[0] if perp[1] == big else perp[1]
+        c = p.c.copy()
+        c[big] = p.hi[big] if par.c[big] > p.c[big] else p.lo[big]
+        c[other] = min(max(par.c[other], p.lo[other]), p.hi[other])
+        return c
+
+    def side(self, p: _P) -> float:
+        """+1 trái (asset +X), -1 phải."""
+        if "left" in p.name:
+            return 1.0
+        if "right" in p.name:
+            return -1.0
+        return 1.0 if p.c[0] >= 0 else -1.0
+
+    def front(self, p: _P) -> bool:
+        return "front" in p.name or ("rear" not in p.name and p.c[2] >= 0)
+
+    # ----- quy tắc -----
+    def build(self) -> dict[str, list[dict]]:
+        cat = self.category
+        rules = {"humanoid": self.humanoid, "quadruped": self.quadruped, "robot_arm": self.robot_arm,
+                 "excavator": self.excavator, "forklift": self.forklift, "crane": self.crane,
+                 "fixed_wing": self.fixed_wing, "ball_valve": self.ball_valve, "cylinder": self.cylinder,
+                 "ball_screw": self.ball_screw, "linear_guide": self.linear_guide, "motorbike": self.motorbike,
+                 "cubesat": self.cubesat, "agv": self.agv}
+        self.spinners()
+        self.wheels()
+        self.drivetrain()
+        self.bearing()
+        if cat in rules:
+            rules[cat]()
+        chains = self.chains()
+        if not any(chains.values()):
+            chains = self.turntable()
+        return chains
+
+    def spinners(self) -> None:
+        uav = self.category == "uav"
+        for p in self.ps:
+            if p.cat in ("propeller",) or (p.cat in ("rotor", "fan_rotor", "lidar", "brush")):
+                axis = p.axis
+                if axis is None:
+                    i = _sym_axis(p.size, 0.25 if p.cat in ("brush", "propeller") else 0.15)
+                    if p.cat == "brush" and i is None:
+                        continue
+                    if i is None:
+                        if p.cat == "propeller":
+                            i = int(np.argmin(p.size))
+                        else:
+                            continue
+                    if p.cat == "propeller" and p.size[i] > 0.6 * max(p.size):
+                        i = int(np.argmin(p.size))
+                    axis = _axis_vec(i)
+                axis = _canon(axis)
+                if p.cat == "lidar":
+                    s = 240.0
+                elif p.cat == "brush":
+                    s = 360.0 if "side" in p.name else -300.0
+                else:
+                    s = FAST_SPIN.get(p.cat, 600.0)
+                if uav and p.cat == "propeller":
+                    diag = ("front_left" in p.id or "rear_right" in p.id)
+                    s = s if diag else -s
+                self.own[p.id] = spin(axis, p.c, s)
+        for p in self.ps:
+            if p.cat == "rotor_hub":
+                axis = _canon(p.axis if p.axis is not None else _axis_vec(int(np.argmin(p.size))))
+                tail = "tail" in p.name
+                s = MODEL_SPIN.get(self.category, 420.0) * (2.6 if tail else 1.0)
+                self.own[p.id] = spin(axis, p.c, s)
+
+    def wheels(self) -> None:
+        ws = []
+        for p in self.ps:
+            if p.cat not in WHEELS and not (p.cat == "tire" and self.parent(p) and self.parent(p).cat not in WHEELS):
+                continue
+            i = _major(p.axis) if p.axis is not None else None
+            if i is None:
+                i = _sym_axis(p.size, 0.2)
+                if i is None:
+                    continue
+                j, k = [x for x in range(3) if x != i]
+                if p.size[i] > 0.9 * min(p.size[j], p.size[k]) and p.cat != "wheelset":
+                    continue
+            ws.append((p, i))
+        if not ws:
+            return
+        rmax = max(_radius(p, _axis_vec(i)) for p, i in ws)
+        for p, i in ws:
+            r = max(1e-6, _radius(p, _axis_vec(i)))
+            axis = _axis_vec(i)
+            # lăn tới trước (+Z): điểm trên cùng phải chạy về +Z → quay dương quanh +X
+            if i == 0:
+                s = 200.0 * rmax / r
+            else:
+                s = 160.0
+            self.own[p.id] = spin(axis, p.c, s)
+
+    def _groups(self) -> dict[str, list[_P]]:
+        """Nhóm quay: gốc là bộ phận quay (trục, bánh răng…) mà cha không phải bộ phận đồng quay."""
+        groups: dict[str, list[_P]] = {}
+        for p in self.ps:
+            if p.id in self.own:
+                continue
+            if p.cat not in ROT_ROOTS or (p.cat == "hub" and self.category != "wind_turbine"):
+                continue
+            if p.cat in ("shaft",) and p.axis is None and not any(k.cat in CO_ROT for k in self.kids.get(p.id, [])):
+                continue
+            par = self.parent(p)
+            if par is not None and (par.cat in CO_ROT or par.id in self.own):
+                continue
+            members, stack = [p], list(self.kids.get(p.id, []))
+            while stack:
+                k = stack.pop()
+                if k.cat in CO_ROT:
+                    members.append(k)
+                    stack.extend(self.kids.get(k.id, []))
+            groups[p.id] = members
+        return groups
+
+    def _group_axis(self, root: _P, members: list[_P]) -> np.ndarray | None:
+        for m in members:
+            if m.axis is not None:
+                return _canon(m.axis)
+        i = _sym_axis(root.size, 0.15)
+        return _axis_vec(i) if i is not None else None
+
+    def drivetrain(self) -> None:
+        groups = self._groups()
+        if not groups:
+            return
+        axes = {g: self._group_axis(self.by[g], ms) for g, ms in groups.items()}
+        groups = {g: ms for g, ms in groups.items() if axes[g] is not None}
+        if not groups:
+            return
+        wheels_of = {g: [m for m in ms if m.cat in ("gear", "pulley", "sprocket")] for g, ms in groups.items()}
+        edges: dict[str, list[tuple[str, float]]] = {g: [] for g in groups}
+        gl = list(groups)
+        belt = any(p.cat in ("belt", "chain") for p in self.ps)
+        for i, g1 in enumerate(gl):
+            for g2 in gl[i + 1:]:
+                if abs(float(np.dot(axes[g1], axes[g2]))) < 0.97:
+                    continue
+                a = axes[g1]
+                for w1 in wheels_of[g1]:
+                    for w2 in wheels_of[g2]:
+                        r1, r2 = _radius(w1, a), _radius(w2, a)
+                        d = w2.c - w1.c
+                        dp = float(np.linalg.norm(d - np.dot(d, a) * a))
+                        if w1.cat == "gear" and w2.cat == "gear":
+                            if abs(dp - (r1 + r2)) <= 0.2 * (r1 + r2):
+                                edges[g1].append((g2, -r1 / r2))
+                                edges[g2].append((g1, -r2 / r1))
+                        elif belt and w1.cat == w2.cat and w1.cat in ("pulley", "sprocket"):
+                            edges[g1].append((g2, r1 / r2))
+                            edges[g2].append((g1, r2 / r1))
+        speed: dict[str, float] = {}
+        base = MODEL_SPIN.get(self.category, BASE_SPIN)
+
+        def score(g: str) -> tuple:
+            n = self.by[g].name + " " + " ".join(m.name for m in groups[g])
+            drv = 0 if ("driver" in n or "_in" in g or "input" in n or "motor" in n) else 1
+            rr = min([_radius(w, axes[g]) for w in wheels_of[g]] or [1e9])
+            return (drv, rr)
+        for start in sorted(gl, key=score):
+            if start in speed:
+                continue
+            speed[start] = base
+            q = [start]
+            while q:
+                g = q.pop(0)
+                for h, k in edges[g]:
+                    if h not in speed:
+                        speed[h] = speed[g] * k
+                        q.append(h)
+        for g, ms in groups.items():
+            root = self.by[g]
+            self.own[g] = spin(axes[g], root.c, speed[g])
+
+    def bearing(self) -> None:
+        rings = [p for p in self.ps if p.cat == "bearing_ring" and p.axis is not None]
+        if not rings:
+            return
+        ring = rings[0]
+        axis = _canon(ring.axis)
+        s = MODEL_SPIN.get(self.category, BASE_SPIN)
+        self.own[ring.id] = spin(axis, ring.c, s)
+        for p in self.ps:
+            if p.cat in ("ball", "roller", "cage"):
+                self.own[p.id] = spin(axis, ring.c, s * 0.4, carry="all")
+
+    def humanoid(self) -> None:
+        per = 1.6
+        x = np.array([1.0, 0.0, 0.0])
+        y = np.array([0.0, 1.0, 0.0])
+        for p in self.ps:
+            if p.cat != "joint":
+                continue
+            ph = 0.0 if self.side(p) > 0 else math.pi
+            n = p.name
+            if "hip" in n:
+                self.own[p.id] = swing(x, p.c, -18, per, ph)
+            elif "knee" in n:
+                self.own[p.id] = swing(x, p.c, 12, per, ph + math.pi / 2, off=14)
+            elif "ankle" in n:
+                self.own[p.id] = swing(x, p.c, 6, per, ph)
+            elif "shoulder" in n:
+                self.own[p.id] = swing(x, p.c, 16, per, ph)
+            elif "elbow" in n:
+                self.own[p.id] = swing(x, p.c, 6, per, ph, off=-18)
+            elif "neck" in n:
+                self.own[p.id] = swing(y, p.c, 10, per * 2, 0)
+            elif "abdomen" in n or "waist" in n:
+                self.own[p.id] = swing(y, p.c, 5, per, 0)
+
+    def quadruped(self) -> None:
+        per = 0.8
+        x = np.array([1.0, 0.0, 0.0])
+        for p in self.ps:
+            if p.cat != "joint" or "hip_ab" in p.id:
+                continue
+            left, front = self.side(p) > 0, self.front(p)
+            ph = 0.0 if left == front else math.pi
+            if "knee" in p.name:
+                self.own[p.id] = swing(x, p.c, 12, per, ph + math.pi / 2)
+            elif "hip" in p.name:
+                self.own[p.id] = swing(x, p.c, 16, per, ph)
+
+    def robot_arm(self) -> None:
+        plan = {"shoulder": (40, 9.0, 0.0), "upper_arm": (18, 7.0, 1.0), "elbow": (22, 6.0, 2.0),
+                "forearm": (22, 6.0, 2.0), "wrist_1": (25, 5.0, 0.5), "wrist_2": (30, 5.0, 3.0),
+                "wrist_3": (90, 4.0, 1.5)}
+        used_elbow = any(p.id == "forearm" and p.axis is not None for p in self.ps)
+        for p in self.ps:
+            if p.axis is None or p.id not in plan or (p.id == "elbow" and used_elbow):
+                continue
+            amp, per, ph = plan[p.id]
+            a = _canon(p.axis)
+            self.own[p.id] = swing(a, self.hinge(p, a), amp, per, ph)
+
+    def excavator(self) -> None:
+        plan = {"upper_structure": (25, 12.0, 0.0), "boom": (7, 6.0, 0.0), "stick": (12, 6.0, 1.2),
+                "bucket": (22, 6.0, 2.4)}
+        for p in self.ps:
+            if p.id not in plan or p.axis is None:
+                continue
+            amp, per, ph = plan[p.id]
+            a = _canon(p.axis)
+            if p.id == "upper_structure":
+                par = self.parent(p)
+                c = p.c.copy()
+                if par is not None:
+                    c[0], c[2] = par.c[0], par.c[2]
+            else:
+                c = self.hinge(p, a)
+            self.own[p.id] = swing(a, c, amp, per, ph)
+
+    def forklift(self) -> None:
+        up = np.array([0.0, 1.0, 0.0])
+        for p in self.ps:
+            if p.id == "mast_inner":
+                amp = 0.18 * p.size[1]
+                self.own[p.id] = slide(up, amp, 7.0, -math.pi / 2, off=amp)
+            elif p.id == "carriage":
+                amp = 0.12 * p.size[1]
+                self.own[p.id] = slide(up, amp, 7.0, -math.pi / 2, off=amp)
+
+    def crane(self) -> None:
+        for p in self.ps:
+            if p.id == "turntable" and p.axis is not None:
+                self.own[p.id] = swing(_canon(p.axis), p.c, 30, 16.0)
+            elif p.id == "boom_base" and p.axis is not None:
+                a = _canon(p.axis)
+                self.own[p.id] = swing(a, self.hinge(p, a), 6, 10.0, 0.5)
+            elif p.id.startswith("boom_section"):
+                par = self.parent(p)
+                if par is None:
+                    continue
+                d = _unit(p.c - par.c)
+                if d is None:
+                    continue
+                amp = 0.08 * float(np.max(p.size))
+                self.own[p.id] = slide(d, amp, 10.0, -math.pi / 2, off=amp)
+
+    def fixed_wing(self) -> None:
+        for p in self.ps:
+            if p.cat != "control_surface" or p.axis is None:
+                continue
+            a = _canon(p.axis)
+            c = self.hinge(p, a)
+            if "aileron" in p.name:
+                self.own[p.id] = swing(a, c, 14 * self.side(p), 3.0)
+            elif "rudder" in p.name:
+                self.own[p.id] = swing(a, c, 14, 4.0, 1.0)
+            else:
+                self.own[p.id] = swing(a, c, 12, 3.5, 0.5)
+
+    def ball_valve(self) -> None:
+        for p in self.ps:
+            if p.id in ("stem", "ball") and p.axis is not None:
+                self.own[p.id] = swing(_canon(p.axis), p.c, 45, 5.0, -math.pi / 2, off=45)
+
+    def cylinder(self) -> None:
+        rod = next((p for p in self.ps if p.cat == "rod" and p.axis is not None), None)
+        if rod is None:
+            return
+        a = _canon(rod.axis)
+        barrel = next((p for p in self.ps if p.cat in ("barrel", "tube")), self.parent(rod))
+        ref = barrel.c if barrel is not None else np.zeros(3)
+        d = a if float(np.dot(rod.c - ref, a)) >= 0 else -a
+        i = _major(a)
+        length = float(rod.size[i]) if i is not None else float(np.max(rod.size))
+        amp = 0.15 * length
+        self.own[rod.id] = slide(d, amp, 4.0, -math.pi / 2, off=amp)
+
+    def ball_screw(self) -> None:
+        shaft = next((p for p in self.ps if p.cat == "shaft" and p.axis is not None), None)
+        nut = next((p for p in self.ps if "ball_nut" in p.id or ("ball nut" in p.name)), None)
+        if shaft is None:
+            return
+        a = _canon(shaft.axis)
+        per = 6.0
+        self.own[shaft.id] = swing(a, shaft.c, 1440, per, carry="rot")
+        if nut is not None:
+            i = _major(a)
+            travel = (float(shaft.size[i]) - float(nut.size[i])) if i is not None else float(np.max(shaft.size))
+            amp = max(0.0, 0.3 * travel)
+            self.own[nut.id] = slide(a, amp, per)
+
+    def linear_guide(self) -> None:
+        rail = max(self.ps, key=lambda p: float(np.max(p.size)))
+        i = int(np.argmax(rail.size))
+        a = _axis_vec(i)
+        cars = [p for p in self.ps if p.cat == "carriage"]
+        if not cars:
+            return
+        span = float(rail.hi[i] - rail.lo[i])
+        lo = min(float(p.lo[i]) for p in cars)
+        hi = max(float(p.hi[i]) for p in cars)
+        room = min(lo - float(rail.lo[i]), float(rail.hi[i]) - hi)
+        amp = max(0.0, min(room * 0.9, 0.3 * span))
+        for p in cars:
+            self.own[p.id] = slide(a, amp, 5.0)
+
+    def motorbike(self) -> None:
+        fork = next((p for p in self.ps if p.cat == "fork" and p.axis is not None), None)
+        if fork is not None:
+            self.own[fork.id] = swing(_canon(fork.axis), fork.c, 10, 5.0)
+
+    def cubesat(self) -> None:
+        for p in self.ps:
+            if p.cat == "solar_panel" and p.axis is not None:
+                a = _canon(p.axis)
+                self.own[p.id] = swing(a, self.hinge(p, a), 12 * self.side(p), 6.0)
+
+    def agv(self) -> None:
+        for p in self.ps:
+            if p.cat == "lift" and p.axis is not None:
+                self.own[p.id] = swing(_canon(p.axis), p.c, 35, 10.0)
+
+    # ----- ghép chuỗi -----
+    def chains(self) -> dict[str, list[dict]]:
+        memo: dict[str, list[dict]] = {}
+
+        def full(p: _P, depth: int = 0) -> list[dict]:
+            if p.id in memo:
+                return memo[p.id]
+            inherited: list[dict] = []
+            par = self.parent(p)
+            if par is not None and depth < 40:
+                for m in full(par, depth + 1):
+                    if m["carry"] == "all" or p.cat in CO_ROT:
+                        inherited.append(m)
+            own = self.own.get(p.id)
+            out = list(inherited)
+            if own is not None:
+                a = np.asarray(own["a"])
+                dup = own["t"] == "spin" and any(m["t"] == "spin" and abs(float(np.dot(a, m["a"]))) > 0.97
+                                                 for m in inherited)
+                if not dup:
+                    out = [own] + inherited
+            memo[p.id] = out
+            return out
+        return {p.id: full(p) for p in self.ps}
+
+    def turntable(self) -> dict[str, list[dict]]:
+        if not self.ps:
+            return {}
+        lo = np.min([p.lo for p in self.ps], axis=0)
+        hi = np.max([p.hi for p in self.ps], axis=0)
+        m = spin(np.array([0.0, 1.0, 0.0]), (lo + hi) / 2, 30.0, carry="all")
+        m["turntable"] = True
+        return {p.id: [m] for p in self.ps}
+
+
+def infer_motions(category: str, parts: list[Any]) -> tuple[dict[str, list[dict]], str]:
+    """Trả về ({part_id: chuỗi chuyển động}, chế độ "parts" | "turntable" | "none")."""
+    if not parts:
+        return {}, "none"
+    chains = _Builder(category, parts).build()
+    turn = any(m.get("turntable") for ch in chains.values() for m in ch)
+    return chains, ("turntable" if turn else "parts")

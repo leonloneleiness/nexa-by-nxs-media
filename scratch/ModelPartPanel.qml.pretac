@@ -1,0 +1,97 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+// Cây bộ phận + thẻ thông tin bộ phận đang chọn (tên, kích thước, vật liệu, chức năng) + tóm tắt chất lượng.
+Rectangle {
+    id: panel
+    color: "#e60a1428"
+    radius: 14
+    border.color: "#16325a"
+    property var mdl: nexa3d.model
+    property var vs: nexa3d.viewState
+    property var info: vs && vs.info ? vs.info : ({})
+    readonly property color cyan: "#22d3ee"
+    readonly property color dim: "#8fb3d1"
+
+    ColumnLayout {
+        anchors.fill: parent; anchors.margins: 10; spacing: 8
+        RowLayout {
+            Text { text: "Bộ phận"; color: "white"; font.pixelSize: 15; font.bold: true }
+            Text { text: "(" + (panel.mdl.parts ? panel.mdl.parts.length : 0) + ")"; color: panel.dim; font.pixelSize: 12 }
+            Item { Layout.fillWidth: true }
+            Text { text: panel.mdl.has_assembly ? "có assembly" : "một khối"; color: panel.mdl.has_assembly ? "#34d399" : "#fbbf24"; font.pixelSize: 11 }
+        }
+        ListView {
+            id: tree
+            Layout.fillWidth: true; Layout.fillHeight: true
+            clip: true; spacing: 1
+            model: panel.mdl.parts || []
+            ScrollBar.vertical: ScrollBar {}
+            delegate: Rectangle {
+                width: tree.width; height: 26; radius: 5
+                readonly property bool sel: panel.vs && panel.vs.selected === modelData.id
+                readonly property bool hidden: panel.vs && panel.vs.visible && panel.vs.visible[modelData.id] === false
+                color: sel ? "#123a5c" : (ma.containsMouse ? "#0d2142" : "transparent")
+                RowLayout {
+                    anchors.fill: parent; anchors.leftMargin: 6 + modelData.depth * 14; anchors.rightMargin: 4; spacing: 6
+                    Text { text: modelData.depth > 0 ? "└" : "■"; color: "#3b5b80"; font.pixelSize: 10 }
+                    Text { Layout.fillWidth: true; text: modelData.name; elide: Text.ElideRight; font.pixelSize: 12
+                           color: hidden ? "#4b6a8a" : (sel ? panel.cyan : "white") }
+                    Text { text: hidden ? "◌" : "●"; color: hidden ? "#4b6a8a" : "#34d399"; font.pixelSize: 12
+                           MouseArea { anchors.fill: parent; anchors.margins: -4; onClicked: nexa3d.partAction("toggle", [modelData.id]) } }
+                }
+                MouseArea { id: ma; anchors.fill: parent; anchors.rightMargin: 24; hoverEnabled: true
+                            onClicked: nexa3d.partAction("focus", [modelData.id]) }
+            }
+        }
+        // ---------- thẻ thông tin ----------
+        Rectangle {
+            visible: panel.info && panel.info.name !== undefined
+            Layout.fillWidth: true
+            implicitHeight: infoCol.implicitHeight + 16
+            radius: 10; color: "#0b1a33"; border.color: panel.cyan
+            ColumnLayout {
+                id: infoCol
+                anchors.fill: parent; anchors.margins: 8; spacing: 3
+                Text { text: panel.info.name || ""; color: "white"; font.pixelSize: 14; font.bold: true; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                Text { text: (panel.info.name_en || "") + (panel.info.position ? " · vị trí: " + panel.info.position : "")
+                       color: panel.dim; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                Text { visible: !!panel.info.dimensions_text; text: "Kích thước: " + (panel.info.dimensions_text || "")
+                       color: "white"; font.pixelSize: 12; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                Text { visible: !!panel.info.material; text: "Vật liệu: " + (panel.info.material || ""); color: "white"; font.pixelSize: 12 }
+                Text { visible: !!panel.info.function; text: panel.info.function || ""; color: "#c7d7ea"; font.pixelSize: 12
+                       wrapMode: Text.Wrap; Layout.fillWidth: true }
+                Text { visible: panel.info.confidence !== undefined && panel.info.confidence < 0.99
+                       text: "Độ tin cậy nhận dạng bộ phận: " + Math.round((panel.info.confidence || 0) * 100) + "%"; color: "#fbbf24"; font.pixelSize: 11 }
+                RowLayout {
+                    spacing: 6
+                    Button { text: "Tách riêng"; font.pixelSize: 11; onClicked: nexa3d.partAction("isolate", [panel.info.id]) }
+                    Button { text: "Ẩn"; font.pixelSize: 11; onClicked: nexa3d.partAction("hide", [panel.info.id]) }
+                    Button { text: "Hiện tất cả"; font.pixelSize: 11; onClicked: nexa3d.showAll() }
+                }
+            }
+        }
+        // ---------- chất lượng ----------
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: qCol.implicitHeight + 12
+            radius: 10; color: "#081226"; border.color: "#16325a"
+            ColumnLayout {
+                id: qCol
+                anchors.fill: parent; anchors.margins: 6; spacing: 2
+                Text { color: "white"; font.pixelSize: 12; font.bold: true
+                       text: "Chất lượng: " + Math.round(panel.mdl.quality_score || 0) + "/100 · " +
+                             ({"passed": "đạt", "failed": "chưa đạt", "best_effort": "best effort"}[panel.mdl.quality_status] || "—") }
+                Text { color: panel.dim; font.pixelSize: 11; wrapMode: Text.Wrap; Layout.fillWidth: true
+                       property var md: panel.mdl.metadata || ({})
+                       text: (md.dimensionally_specified ? "Có kích thước xác định" : "Mô hình ý tưởng") +
+                             (md.geometry_validated ? " · hình học đã kiểm tra" : " · hình học CHƯA đạt") +
+                             (md.technical_thread === true ? " · ren helix kỹ thuật" : (md.technical_thread === false ? " · ren minh họa" : "")) +
+                             " · chưa kiểm chứng chế tạo" +
+                             (md.assembly_confidence !== undefined && md.assembly_confidence !== null ? " · assembly " + Math.round(md.assembly_confidence * 100) + "%" : "") +
+                             (md.ai_review_used ? " · có AI chấm ảnh" : " · chưa có AI chấm ảnh") }
+            }
+        }
+    }
+}

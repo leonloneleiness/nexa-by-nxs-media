@@ -1,0 +1,748 @@
+import "Theme.js" as Theme
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import "TacStyle.js" as S
+
+// Sinh code: nhập yêu cầu → Gemini viết → NEXA kiểm tra → anh XEM TRƯỚC (tô màu, số dòng, kết quả kiểm tra).
+// Clipboard chỉ được ghi khi anh bấm "Sao chép"; chạy thử chỉ khi anh bấm "Chạy thử" (hoặc nói "chạy thử file …").
+// Kết quả chạy hiện NGAY TRONG bảng này: đầu ra trực tiếp tô màu, ô nhập cho chương trình, trang HTML xem tại chỗ.
+Item {
+    id: panel
+    signal closeRequested()
+    property real copilotReserve: 0                   // radar NEXA nổi ở góc dưới trái (Main.qml) — chừa chỗ dưới cột lịch sử
+    TacCard { anchors.fill: parent; headerH: 0; cut: 18; fillColor: Theme.panelGlass }
+    readonly property string tacFont: S.tacFont(Qt.fontFamilies())
+
+    readonly property color cyan: Theme.accent
+    readonly property color dim: Theme.textSecondary
+    readonly property color codeBg: Theme.surfaceDeep
+    readonly property color termBg: Theme.bg
+    readonly property var res: nexaCode.result
+    readonly property bool hasResult: res.id !== undefined && res.files !== undefined && res.files.length > 0
+    readonly property var job: nexaCode.job
+    readonly property var run: nexaCode.run
+    readonly property bool hasRun: !!run.active
+    readonly property bool hasPreview: hasRun && !!run.previewUrl && nexaCode.webPreview
+    property int fileIndex: 0
+    property string view: "code"                       // "code" | "run" | "web"
+    property string lastResId: ""
+    property bool webLoaded: false                     // chỉ khởi động trình duyệt nhúng khi anh thực sự xem trang
+    readonly property var file: hasResult && fileIndex < res.files.length ? res.files[fileIndex] : null
+    readonly property var statusColor: ({"ok": Theme.success, "warning": Theme.amber, "error": Theme.danger, "skipped": "#94a3b8"})
+    readonly property var runColor: ({"running": Theme.accent, "ok": Theme.success, "failed": Theme.danger, "build_failed": Theme.danger,
+                                      "timeout": Theme.amber, "stopped": Theme.amber, "no_tests": Theme.amber, "preview": Theme.blue})
+    readonly property color runTone: runColor[run.state] || dim
+    readonly property string monoFamily: "Consolas"
+    readonly property bool roomy: width > 1050
+    // đang xem kết quả chạy / trang: gọn phần đầu, dành chỗ cho vùng kết quả (≥ màn hình iPad mini khi đủ chỗ)
+    readonly property bool focusRun: view !== "code" && hasRun
+
+    onResChanged: {
+        fileIndex = 0
+        if (res.id !== lastResId) { lastResId = res.id || ""; if (!hasRun || run.running === false) view = "code" }
+    }
+    onViewChanged: {
+        if (view === "web") webLoaded = true
+        nexaCode.setView(view)                              // búng tay: màn hình code → chạy; đang xem kết quả → tắt
+    }
+    onHasPreviewChanged: if (!hasPreview && view === "web") view = "run"
+    // yêu cầu nói bằng giọng (hoặc Gemini gọi công cụ) hiện vào ô nhập để anh thấy NEXA đang viết gì
+    Connections {
+        target: nexaCode
+        function onPanelChanged() { if (nexaCode.draft.prompt) prompt.text = nexaCode.draft.prompt }
+        function onShowView(v) {
+            panel.view = (v === "run" && panel.hasPreview) ? "web" : v
+            if (panel.view === "web") webLoader.reloadSoon()
+            if (v === "run") stdinField.text = ""
+        }
+        function onRunChanged() { panel.runStamp = Date.now() }
+        function onGestureScroll(dy) { panel.gestureScroll(dy) }
+    }
+    // cử chỉ hai ngón (nexa/code/gesture_controller.py): cuộn đúng vùng anh đang xem
+    function scrollFlick(f, dy) {
+        if (!f || !f.visible) return false
+        f.contentY = Math.max(0, Math.min(Math.max(0, f.contentHeight - f.height), f.contentY + dy))
+        return true
+    }
+    function gestureScroll(dy) {
+        if (view === "web" && webLoader.item && webLoader.item.scrollBy) { webLoader.item.scrollBy(dy); return }
+        if (view === "run" || (view === "web" && !term.collapsed)) {
+            if (scrollFlick(termFlick, dy)) termFlick.follow = termFlick.contentY >= termFlick.contentHeight - termFlick.height - 4
+            return
+        }
+        if (!scrollFlick(codeFlick, dy)) scrollFlick(historyList, dy)
+    }
+    readonly property bool cameraOn: typeof nexa !== "undefined" && nexa !== null && nexa.cameraOn === true
+    readonly property var gest: nexaCode.gesture
+    property real runStamp: 0
+    property real nowMs: 0
+    Timer { interval: 200; repeat: true; running: panel.run.running === true; onTriggered: panel.nowMs = Date.now() }
+    readonly property real shownSeconds: run.running ? (run.seconds || 0) + Math.max(0, nowMs - runStamp) / 1000 : (run.seconds || 0)
+
+    component PButton: Button {
+        id: pb
+        property color tint: panel.cyan
+        font.pixelSize: 12
+        font.family: panel.tacFont
+        font.letterSpacing: 1.2
+        leftPadding: 14; rightPadding: 14; topPadding: 7; bottomPadding: 7
+        opacity: enabled ? 1 : 0.4
+        contentItem: Text { text: pb.text; font: pb.font; color: pb.hovered ? "white" : Theme.textPrimary
+                            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+        background: Item {
+            TacFrame {
+                anchors.fill: parent; cut: 7
+                fill: Qt.rgba(pb.tint.r, pb.tint.g, pb.tint.b, pb.down ? 0.34 : pb.hovered ? 0.2 : 0.08)
+                stroke: Qt.rgba(pb.tint.r, pb.tint.g, pb.tint.b, pb.hovered ? 0.95 : 0.5)
+            }
+            Rectangle { x: 7; width: 14; height: 2; y: parent.height - 4; color: pb.tint; opacity: pb.hovered ? 1 : 0.7 }
+        }
+    }
+    component Badge: Item {
+        property string text: ""
+        property color tone: panel.dim
+        implicitHeight: 20; implicitWidth: badgeText.implicitWidth + 16
+        TacFrame { anchors.fill: parent; cut: 5; fill: Qt.rgba(parent.tone.r, parent.tone.g, parent.tone.b, 0.1)
+                   stroke: Qt.rgba(parent.tone.r, parent.tone.g, parent.tone.b, 0.55) }
+        Text { id: badgeText; anchors.centerIn: parent; text: parent.text.toUpperCase(); color: parent.tone
+               font.family: panel.tacFont; font.pixelSize: 10; font.letterSpacing: 1 }
+    }
+    component InfoText: TextEdit {
+        readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; color: Theme.textPrimary; font.pixelSize: 12
+        selectionColor: Theme.borderStrong; textFormat: TextEdit.PlainText
+    }
+    // nút chuyển Code | Kết quả chạy | Xem trang
+    component ViewTab: Item {
+        id: vt
+        property string key: ""
+        property string label: ""
+        property color dot: "transparent"
+        property bool pulse: false
+        property bool showDot: false
+        readonly property bool on: panel.view === key
+        implicitHeight: 30; implicitWidth: vtRow.implicitWidth + 26
+        TacFrame { anchors.fill: parent; cut: 7
+                   fill: vt.on ? "#1f8fd8ff" : (vtMa.containsMouse ? Theme.surfaceRaised : Theme.surface)
+                   stroke: vt.on ? panel.cyan : Qt.rgba(0.56, 0.85, 1, 0.25) }
+        Rectangle { visible: vt.on; x: 8; width: vt.width - 22; height: 2; anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 3; color: panel.cyan }
+        MouseArea { id: vtMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                    onClicked: panel.view = vt.key }
+        Row {
+            id: vtRow; anchors.centerIn: parent; spacing: 7
+            Rectangle {
+                width: 7; height: 7; rotation: 45; anchors.verticalCenter: parent.verticalCenter
+                visible: vt.showDot; color: vt.dot
+                SequentialAnimation on opacity {
+                    running: vt.pulse; loops: Animation.Infinite
+                    NumberAnimation { to: 0.25; duration: 550 } NumberAnimation { to: 1; duration: 550 }
+                }
+            }
+            Text { text: vt.label.toUpperCase(); color: vt.on ? "white" : panel.dim; font.pixelSize: 11
+                   font.family: panel.tacFont; font.letterSpacing: 1.3 }
+        }
+    }
+
+    ColumnLayout {
+        anchors.fill: parent; anchors.margins: 18; anchors.topMargin: 14; spacing: 10
+
+        // ---------- tiêu đề ----------
+        RowLayout {
+            spacing: 10
+            Row {
+                spacing: 9
+                Text { text: "04"; color: S.amber; font.family: S.mono; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: "Code Studio"; color: "white"; font.family: panel.tacFont; font.pixelSize: 22; font.weight: Font.Light; font.letterSpacing: 0.3
+                       anchors.verticalCenter: parent.verticalCenter }
+                Text { text: "NEXA / BUILD"; color: S.iceDim; font.family: S.mono; font.pixelSize: 11
+                       anchors.verticalCenter: parent.verticalCenter; visible: !panel.focusRun }
+            }
+            // đang xem kết quả: nút chuyển lên luôn hàng tiêu đề để vùng kết quả cao hơn
+            Row {
+                visible: panel.focusRun; spacing: 6; Layout.leftMargin: 8
+                ViewTab { key: "code"; label: "</>  Code"; visible: panel.hasResult }
+                ViewTab { key: "run"; label: "▶  Kết quả chạy · " + (panel.run.stateLabel || "")
+                          showDot: true; dot: panel.runTone; pulse: panel.run.running === true }
+                ViewTab { key: "web"; label: "◉  Xem trang"; visible: panel.hasPreview; showDot: true; dot: Theme.blue }
+            }
+            Text { color: panel.dim; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight
+                   text: panel.focusRun || panel.cameraOn ? "" : "Gemini viết · NEXA kiểm tra cú pháp và tự sửa lỗi · chạy thử và xem kết quả ngay tại đây" }
+            // camera đang bật: nhắc cử chỉ + tiến độ giữ nắm tay
+            Rectangle {
+                id: gestChip
+                objectName: "gestureChip"
+                visible: panel.cameraOn
+                readonly property bool busy: panel.gest.state !== "IDLE" || (panel.gest.label || "").indexOf("—") >= 0
+                readonly property string full: panel.gest.label || "✊ nắm tay: lưu · 🫰 búng tay: chạy / tắt · ✌ hai ngón: cuộn"
+                Layout.maximumWidth: panel.focusRun ? 300 : 420
+                implicitWidth: gestText.implicitWidth + 22; implicitHeight: 26; radius: 1
+                color: busy ? Theme.surfaceRaised : Theme.surfaceRaised; border.color: busy ? panel.cyan : Theme.border
+                Behavior on color { ColorAnimation { duration: 150 } }
+                Text {
+                    id: gestText
+                    anchors.verticalCenter: parent.verticalCenter; x: 11; width: parent.width - 22
+                    text: gestChip.busy || panel.width > 1100 || !panel.focusRun ? gestChip.full : "✋ Cử chỉ: ✊ lưu · 🫰 chạy/tắt · ✌ cuộn"
+                    color: gestChip.busy ? "white" : panel.dim; font.pixelSize: 11; elide: Text.ElideRight
+                }
+                Rectangle {           // tiến độ giữ nắm tay để lưu
+                    visible: panel.gest.state === "FIST_HOLD"
+                    anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.leftMargin: 8; anchors.bottomMargin: 3
+                    height: 2; radius: 1; color: panel.cyan
+                    width: (parent.width - 16) * Math.max(0, Math.min(1, panel.gest.progress || 0))
+                }
+            }
+            TacTool { small: true; glyphCode: 0xE711; tint: S.hazard; tip: "Đóng"; onClicked: panel.closeRequested() }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true; Layout.topMargin: -4; height: 1; color: Qt.rgba(0.56, 0.85, 1, 0.14)
+            Row { anchors.right: parent.right; y: -1; spacing: 3
+                  Repeater { model: 3; Rectangle { width: 10; height: 3; color: S.amber; opacity: 0.85 } } }
+        }
+        // ---------- yêu cầu ----------
+        RowLayout {
+            visible: !panel.focusRun
+            spacing: 8
+            Rectangle {
+                Layout.fillWidth: true; Layout.preferredHeight: 68
+                color: "transparent"
+                TacFrame { anchors.fill: parent; cut: 9; fill: Theme.inputGlass
+                           stroke: prompt.activeFocus ? S.amber : Qt.rgba(0.56, 0.85, 1, 0.28) }
+                Text { x: 12; y: 9; text: ">"; color: S.amber; font.family: S.mono; font.pixelSize: 16; font.bold: true }
+                ScrollView {
+                    anchors.fill: parent; anchors.margins: 2; anchors.leftMargin: 24
+                    TextArea {
+                        id: prompt
+                        Component.onCompleted: text = nexaCode.draft.prompt || ""
+                        placeholderText: "Mô tả code cần viết, ví dụ: “Hàm Python đọc CSV, gộp doanh thu theo tháng, xuất JSON” · Ctrl+Enter để gửi"
+                        color: "white"; font.pixelSize: 13; placeholderTextColor: Theme.textMuted; wrapMode: TextArea.Wrap
+                        background: Item {}
+                        Keys.onPressed: (e) => {
+                            if ((e.key === Qt.Key_Return || e.key === Qt.Key_Enter) && (e.modifiers & Qt.ControlModifier)) {
+                                go.clicked(); e.accepted = true
+                            }
+                        }
+                    }
+                }
+            }
+            ColumnLayout {
+                spacing: 6
+                ComboBox {
+                    id: langBox
+                    Layout.preferredWidth: 140
+                    model: nexaCode.languages
+                    textRole: "label"; valueRole: "key"
+                    font.pixelSize: 12
+                    contentItem: Text { leftPadding: 10; text: langBox.displayText; font: langBox.font; color: "white"
+                                        verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+                    indicator: Text { x: langBox.width - width - 10; anchors.verticalCenter: parent.verticalCenter
+                                      text: "▾"; color: panel.dim; font.pixelSize: 12 }
+                    background: Item {
+                        implicitWidth: 140; implicitHeight: 30
+                        TacFrame { anchors.fill: parent; cut: 7; fill: Theme.surface
+                                   stroke: langBox.activeFocus ? panel.cyan : Qt.rgba(0.56, 0.85, 1, 0.3) }
+                    }
+                    Component.onCompleted: {
+                        const k = nexaCode.draft.language || ""
+                        for (let i = 0; i < nexaCode.languages.length; i++) if (nexaCode.languages[i].key === k) currentIndex = i
+                    }
+                }
+                PButton {
+                    id: go
+                    Layout.preferredWidth: 140
+                    text: nexaCode.busy ? "Hủy" : "Viết code"
+                    tint: nexaCode.busy ? S.hazard : S.amber
+                    onClicked: nexaCode.busy ? nexaCode.cancel()
+                                             : (prompt.text.trim().length ? nexaCode.generate(prompt.text.trim(), langBox.currentValue || "") : null)
+                }
+            }
+        }
+
+        // ---------- tiến độ ----------
+        RowLayout {
+            visible: nexaCode.busy || job.state === "failed" || job.state === "cancelled"
+            spacing: 10
+            ProgressBar { Layout.preferredWidth: 220; from: 0; to: 1; value: job.progress || 0; visible: nexaCode.busy
+                          indeterminate: (job.progress || 0) < 0.1 }
+            Text { Layout.fillWidth: true; elide: Text.ElideRight; font.pixelSize: 12
+                   color: job.state === "failed" ? Theme.danger : panel.dim; text: job.message || "" }
+        }
+
+        // ---------- lịch sử | kết quả ----------
+        RowLayout {
+            Layout.fillWidth: true; Layout.fillHeight: true; spacing: 12
+
+            Rectangle {
+                visible: panel.roomy && !panel.focusRun
+                Layout.preferredWidth: 236; Layout.fillHeight: true
+                Layout.bottomMargin: panel.copilotReserve
+                radius: 1; color: Theme.surface; border.color: Theme.border
+                ColumnLayout {
+                    anchors.fill: parent; anchors.margins: 8; spacing: 6
+                    Row { spacing: 7
+                          Text { text: "LOG"; color: S.amber; font.family: S.mono; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
+                          Text { text: "GẦN ĐÂY"; color: Theme.textPrimary; font.family: panel.tacFont; font.pixelSize: 11; font.letterSpacing: 2.5 } }
+                    ListView {
+                        id: historyList
+                        Layout.fillWidth: true; Layout.fillHeight: true; clip: true; spacing: 4
+                        model: nexaCode.history
+                        ScrollBar.vertical: ScrollBar {}
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: historyList.width; height: 44; radius: 1
+                            color: modelData.id === panel.res.id ? Theme.surfaceRaised : (ma.containsMouse ? Theme.surface : "transparent")
+                            border.color: "transparent"
+                            Rectangle { visible: modelData.id === panel.res.id; width: 2; height: parent.height; color: panel.cyan }
+                            MouseArea { id: ma; anchors.fill: parent; hoverEnabled: true
+                                        onClicked: { panel.view = "code"; nexaCode.openHistory(modelData.id) } }
+                            Column {
+                                anchors.fill: parent; anchors.margins: 6; spacing: 2
+                                Text { width: parent.width; text: modelData.title; color: "white"; font.pixelSize: 12; elide: Text.ElideRight }
+                                Text { width: parent.width; color: panel.dim; font.pixelSize: 10; elide: Text.ElideRight
+                                       text: modelData.languageLabel + " · " + modelData.files + " tệp · " + modelData.when }
+                            }
+                        }
+                        Text { anchors.centerIn: parent; visible: historyList.count === 0; color: Theme.textMuted; font.pixelSize: 11
+                               text: "Chưa có bản code nào" }
+                    }
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true; Layout.fillHeight: true; spacing: 8
+
+                // chưa có gì
+                Rectangle {
+                    visible: !panel.hasResult && !panel.hasRun
+                    Layout.fillWidth: true; Layout.fillHeight: true; radius: 1; color: Theme.surface; border.color: Theme.border
+                    Text {
+                        anchors.centerIn: parent; width: parent.width - 60; horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.Wrap; color: panel.dim; font.pixelSize: 13; lineHeight: 1.3
+                        text: nexaCode.busy ? "Đang viết code… bản code sẽ hiện ở đây để anh xem trước."
+                                            : "Gõ yêu cầu ở trên, hoặc nói: “viết hàm Python kiểm tra số nguyên tố”, “tạo script PowerShell dọn thư mục Temp”, “chạy thử file main.py”.\n\nNEXA không tự sao chép hay tự chạy code — mọi thứ chờ anh bấm."
+                    }
+                }
+
+                // tiêu đề + tóm tắt bản code
+                ColumnLayout {
+                    visible: panel.hasResult && panel.view === "code"
+                    Layout.fillWidth: true; spacing: 4
+                    RowLayout {
+                        spacing: 8
+                        Text { text: (res.title || "").toUpperCase(); color: "white"; font.pixelSize: 15; font.family: panel.tacFont; font.letterSpacing: 1.5
+                               elide: Text.ElideRight; Layout.maximumWidth: 460 }
+                        Badge { text: res.languageLabel || ""; tone: panel.cyan }
+                        Badge { text: "Kiểm tra: " + (res.checkLabel || ""); tone: panel.statusColor[res.checkStatus] || panel.dim }
+                        Badge { visible: !!res.run && !(panel.run.running && panel.run.source === "code")
+                                tone: res.run && res.run.ok ? Theme.success : Theme.danger
+                                text: res.run ? (res.run.ok ? "Chạy thử: đạt" : "Chạy thử: chưa đạt") : "" }
+                        Item { Layout.fillWidth: true }
+                        Text { color: Theme.textMuted; font.pixelSize: 10
+                               text: (res.totalLines || 0) + " dòng" + (res.rounds > 1 ? " · " + res.rounds + " lượt Gemini" : "") + (res.model ? " · " + res.model : "") }
+                    }
+                    Text { visible: panel.view === "code"; Layout.fillWidth: true; text: res.summary || ""; color: Theme.textPrimary
+                           font.pixelSize: 12; wrapMode: Text.Wrap; maximumLineCount: 3; elide: Text.ElideRight }
+                }
+
+                // Code | Kết quả chạy | Xem trang
+                RowLayout {
+                    visible: (panel.hasResult || panel.hasRun) && !panel.focusRun
+                    spacing: 6
+                    ViewTab { key: "code"; label: "</>  Code"; visible: panel.hasResult }
+                    ViewTab { key: "run"; label: "▶  Kết quả chạy" + (panel.hasRun ? " · " + panel.run.stateLabel : "")
+                              showDot: panel.hasRun; dot: panel.runTone; pulse: panel.run.running === true }
+                    ViewTab { key: "web"; label: "◉  Xem trang"; visible: panel.hasPreview; showDot: true; dot: Theme.blue }
+                    Item { Layout.fillWidth: true }
+                    Text { visible: panel.view === "code" && panel.file !== null; color: Theme.textMuted; font.pixelSize: 10
+                           text: panel.file ? panel.file.label + " · " + panel.file.lines + " dòng" : "" }
+                }
+
+                // ================= CODE =================
+                Flow {
+                    visible: panel.hasResult && panel.view === "code"
+                    Layout.fillWidth: true; spacing: 6
+                    Repeater {
+                        model: panel.hasResult ? res.files : []
+                        delegate: Rectangle {
+                            required property var modelData
+                            required property int index
+                            height: 26; radius: 1; width: tabRow.implicitWidth + 18
+                            color: index === panel.fileIndex ? panel.codeBg : (tabMa.containsMouse ? Theme.surface : Theme.surface)
+                            border.color: index === panel.fileIndex ? panel.cyan : Theme.border
+                            MouseArea { id: tabMa; anchors.fill: parent; hoverEnabled: true; onClicked: panel.fileIndex = index }
+                            Row {
+                                id: tabRow; anchors.centerIn: parent; spacing: 6
+                                Rectangle { width: 7; height: 7; radius: 4; anchors.verticalCenter: parent.verticalCenter
+                                            color: panel.statusColor[modelData.check.status] || panel.dim }
+                                Text { text: modelData.path; color: "white"; font.pixelSize: 12; font.family: panel.monoFamily }
+                                Text { text: modelData.lines; color: Theme.textMuted; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
+                            }
+                        }
+                    }
+                }
+
+                // khung code: số dòng + code tô màu, chỉ đọc (anh vẫn bôi đen được từng đoạn)
+                Rectangle {
+                    visible: panel.hasResult && panel.view === "code"
+                    Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 160
+                    radius: 1; color: panel.codeBg; border.color: Theme.border; clip: true
+                    Flickable {
+                        id: codeFlick
+                        objectName: "codeFlick"
+                        anchors.fill: parent; anchors.margins: 1
+                        contentWidth: codeRow.width + 24; contentHeight: codeRow.height + 20
+                        boundsBehavior: Flickable.StopAtBounds; clip: true
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                        ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
+                        Row {
+                            id: codeRow
+                            x: 0; y: 10; spacing: 0
+                            Rectangle {
+                                width: gutter.implicitWidth + 22; height: Math.max(code.implicitHeight, codeFlick.height - 20)
+                                color: Theme.bg
+                                Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: Qt.rgba(0.56, 0.85, 1, 0.16) }
+                                TextEdit {
+                                    id: gutter
+                                    x: 10; readOnly: true; selectByMouse: false; activeFocusOnPress: false
+                                    textFormat: TextEdit.RichText; font.family: panel.monoFamily; font.pixelSize: 13
+                                    text: panel.file ? panel.file.gutter : ""
+                                }
+                            }
+                            Item { width: 14; height: 1 }
+                            TextEdit {
+                                id: code
+                                readOnly: true; selectByMouse: true; persistentSelection: true
+                                textFormat: TextEdit.RichText; wrapMode: TextEdit.NoWrap
+                                font.family: panel.monoFamily; font.pixelSize: 13
+                                selectionColor: "#3e4451"; selectedTextColor: "#ffffff"
+                                text: panel.file ? panel.file.html : ""
+                                onTextChanged: { codeFlick.contentY = 0; codeFlick.contentX = 0 }
+                            }
+                        }
+                    }
+                }
+
+                // thông báo kiểm tra của tệp đang xem
+                Rectangle {
+                    visible: panel.view === "code" && panel.file !== null && panel.file.check.messages.length > 0
+                    Layout.fillWidth: true; Layout.preferredHeight: Math.min(checkCol.implicitHeight + 12, 84)
+                    radius: 1; clip: true
+                    readonly property color tone: panel.file ? (panel.statusColor[panel.file.check.status] || panel.dim) : panel.dim
+                    color: Qt.rgba(tone.r, tone.g, tone.b, 0.08); border.color: Qt.rgba(tone.r, tone.g, tone.b, 0.5)
+                    Flickable {
+                        anchors.fill: parent; anchors.margins: 6; contentHeight: checkCol.implicitHeight; clip: true
+                        Column {
+                            id: checkCol; width: parent.width; spacing: 2
+                            Repeater {
+                                model: panel.file ? panel.file.check.messages : []
+                                delegate: Text { required property var modelData; width: checkCol.width; wrapMode: Text.Wrap
+                                                 text: "• " + modelData; color: "#e5e7eb"; font.pixelSize: 11; font.family: panel.monoFamily }
+                            }
+                        }
+                    }
+                }
+
+                // nút thao tác — chỉ khi anh bấm
+                Flow {
+                    visible: panel.hasResult && panel.view === "code"
+                    Layout.fillWidth: true; spacing: 8
+                    PButton { text: "▶ Chạy thử"; tint: Theme.success; enabled: !(panel.run.running && panel.run.source === "code")
+                              onClicked: nexaCode.runTests()
+                              ToolTip.visible: hovered; ToolTip.delay: 400
+                              ToolTip.text: "Chạy kiểm thử/tệp chính trong thư mục tạm — kết quả hiện ngay trong NEXA; trang HTML hiện tại chỗ.\nĐây là chạy code thật bằng quyền tài khoản của anh — không phải sandbox." }
+                    PButton { text: "Sao chép tệp này"; enabled: panel.file !== null; onClicked: nexaCode.copyFile(panel.fileIndex) }
+                    PButton { text: "Sao chép tất cả"; visible: panel.hasResult && res.files.length > 1; onClicked: nexaCode.copyAll() }
+                    PButton { text: "Lưu ra thư mục"; tint: Theme.blue; onClicked: nexaCode.save() }
+                    PButton { text: "✦ Sửa lỗi chạy thử"; tint: Theme.amber; visible: !!res.run && !res.run.ok; enabled: !nexaCode.busy
+                              onClicked: nexaCode.fixRunErrors() }
+                }
+
+                // thông tin thêm
+                ColumnLayout {
+                    visible: panel.hasResult && panel.view === "code"
+                    Layout.fillWidth: true; spacing: 0
+                    TabBar {
+                        id: infoTabs
+                        Layout.fillWidth: true
+                        background: Rectangle { color: "transparent" }
+                        Repeater {
+                            model: ["Cách chạy", "Thư viện & ghi chú"]
+                            delegate: TabButton {
+                                required property string modelData
+                                required property int index
+                                text: modelData.toUpperCase(); font.pixelSize: 11; font.family: panel.tacFont; font.letterSpacing: 2
+                                contentItem: Text { text: parent.text; font: parent.font; horizontalAlignment: Text.AlignHCenter
+                                                    color: infoTabs.currentIndex === index ? panel.cyan : panel.dim }
+                                background: Rectangle { color: infoTabs.currentIndex === index ? Theme.surface : "transparent"; radius: 1 }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: 92
+                        radius: 1; color: Theme.surface; border.color: Theme.border; clip: true
+                        StackLayout {
+                            anchors.fill: parent; anchors.margins: 8
+                            currentIndex: infoTabs.currentIndex
+                            ScrollView {
+                                InfoText { width: parent.width; text: res.runInstructions || "(Không có hướng dẫn chạy)" }
+                            }
+                            ScrollView {
+                                InfoText {
+                                    width: parent.width
+                                    text: {
+                                        let s = ""
+                                        if (res.missing && res.missing.length) s += "Máy chưa có — cần cài:\n  " + res.missing.join("\n  ") + "\n\n"
+                                        if (res.dependencies && res.dependencies.length) s += "Thư viện dùng: " + res.dependencies.join(", ") + "\n\n"
+                                        if (res.notes && res.notes.length) s += "Ghi chú:\n• " + res.notes.join("\n• ")
+                                        return s.length ? s : "Chỉ dùng thư viện chuẩn, không có ghi chú thêm."
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ================= KẾT QUẢ CHẠY =================
+                // thẻ trạng thái: ĐANG CHẠY / ĐẠT / LỖI…, tên, thời gian, mã thoát, lệnh
+                Rectangle {
+                    visible: panel.view === "run" && panel.hasRun
+                    Layout.fillWidth: true; Layout.preferredHeight: runHead.implicitHeight + 20
+                    radius: 1; color: Theme.surface
+                    border.color: Qt.rgba(panel.runTone.r, panel.runTone.g, panel.runTone.b, 0.45)
+                    Rectangle {                              // vạch màu trạng thái bên trái
+                        width: 4; radius: 2; color: panel.runTone
+                        anchors { left: parent.left; top: parent.top; bottom: parent.bottom; margins: 8 }
+                    }
+                    ColumnLayout {
+                        id: runHead
+                        anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter
+                                  leftMargin: 22; rightMargin: 12 }
+                        spacing: 6
+                        RowLayout {
+                            spacing: 10
+                            Rectangle {                      // viên trạng thái
+                                implicitHeight: 24; radius: 1; implicitWidth: pillRow.implicitWidth + 20
+                                color: Qt.rgba(panel.runTone.r, panel.runTone.g, panel.runTone.b, 0.16)
+                                border.color: panel.runTone
+                                Row {
+                                    id: pillRow; anchors.centerIn: parent; spacing: 7
+                                    Rectangle {
+                                        width: 8; height: 8; radius: 4; color: panel.runTone; anchors.verticalCenter: parent.verticalCenter
+                                        SequentialAnimation on opacity {
+                                            running: panel.run.running === true; loops: Animation.Infinite
+                                            NumberAnimation { to: 0.2; duration: 500 } NumberAnimation { to: 1; duration: 500 }
+                                        }
+                                    }
+                                    Text { text: (panel.run.stateLabel || "").toUpperCase(); color: panel.runTone
+                                           font.pixelSize: 11; font.family: panel.tacFont; font.letterSpacing: 2 }
+                                }
+                            }
+                            Text { text: (panel.run.title || "").toUpperCase(); color: "white"; font.pixelSize: 14; font.family: panel.tacFont; font.letterSpacing: 1.5
+                                   elide: Text.ElideRight; Layout.maximumWidth: 380 }
+                            Badge { visible: !!panel.run.lang; text: panel.run.lang || ""; tone: panel.cyan }
+                            Badge { visible: panel.run.source === "file"; text: "tệp trên máy"; tone: Theme.silver }
+                            Item { Layout.fillWidth: true }
+                            Text { visible: panel.run.running === true && panel.run.steps > 1; color: panel.dim; font.pixelSize: 11
+                                   text: panel.run.step < panel.run.steps ? "Bước " + panel.run.step + "/" + panel.run.steps + " · biên dịch"
+                                                                         : "Bước " + panel.run.step + "/" + panel.run.steps + " · chạy" }
+                            Text { visible: panel.run.state !== "preview"; color: Theme.textPrimary; font.pixelSize: 12; font.family: panel.monoFamily
+                                   text: "⏱ " + panel.shownSeconds.toFixed(panel.run.running ? 1 : 2) + " s" }
+                            Badge { visible: panel.run.running === false && panel.run.exitCode >= 0 && panel.run.state !== "preview"
+                                    text: "mã thoát " + panel.run.exitCode; tone: panel.run.exitCode === 0 ? Theme.success : Theme.danger }
+                        }
+                        Text {
+                            visible: !!panel.run.command
+                            Layout.fillWidth: true; elide: Text.ElideMiddle
+                            text: "> " + (panel.run.command || ""); color: Theme.textMuted; font.pixelSize: 11; font.family: panel.monoFamily
+                        }
+                        // kết quả kiểm thử: thanh đạt/lỗi
+                        RowLayout {
+                            visible: !!panel.run.summary && panel.run.summary.total > 0
+                            spacing: 10
+                            Rectangle {
+                                Layout.preferredWidth: 180; implicitHeight: 6; radius: 3; color: Theme.surfaceRaised; clip: true
+                                Rectangle { height: parent.height; radius: 3; color: Theme.success
+                                            width: panel.run.summary && panel.run.summary.total ? parent.width * panel.run.summary.passed / panel.run.summary.total : 0 }
+                                Rectangle { height: parent.height; radius: 3; color: Theme.danger; anchors.right: parent.right
+                                            width: panel.run.summary && panel.run.summary.total ? parent.width * panel.run.summary.failed / panel.run.summary.total : 0 }
+                            }
+                            Text { color: Theme.success; font.pixelSize: 12; font.bold: true; text: "✓ " + (panel.run.summary ? panel.run.summary.passed : 0) + " đạt" }
+                            Text { visible: !!panel.run.summary && panel.run.summary.failed > 0; color: Theme.danger; font.pixelSize: 12; font.bold: true
+                                   text: "✗ " + (panel.run.summary ? panel.run.summary.failed : 0) + " lỗi" }
+                            Text { color: panel.dim; font.pixelSize: 11; text: "/ " + (panel.run.summary ? panel.run.summary.total : 0) + " kiểm thử" }
+                        }
+                        Text { visible: !!panel.run.note; Layout.fillWidth: true; wrapMode: Text.Wrap
+                               text: "ⓘ " + (panel.run.note || ""); color: Theme.amber; font.pixelSize: 11 }
+                    }
+                }
+
+                // trang HTML hiện ngay trong NEXA
+                Rectangle {
+                    id: webBox
+                    objectName: "webBox"
+                    visible: panel.view === "web" && panel.hasPreview
+                    Layout.fillWidth: true; Layout.fillHeight: true; Layout.minimumHeight: 200
+                    radius: 1; color: Theme.surface; border.color: Theme.border; clip: true
+                    ColumnLayout {
+                        anchors.fill: parent; anchors.margins: 1; spacing: 0
+                        Rectangle {                          // thanh địa chỉ giả kiểu trình duyệt
+                            Layout.fillWidth: true; height: 34; color: Theme.surface; radius: 1
+                            RowLayout {
+                                anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 8; spacing: 8
+                                Row { spacing: 6
+                                      Repeater { model: [Theme.danger, Theme.amber, Theme.success]
+                                                 delegate: Rectangle { required property string modelData; width: 10; height: 10; radius: 5; color: modelData } } }
+                                Rectangle {
+                                    Layout.fillWidth: true; height: 22; radius: 1; color: Theme.surface; border.color: Theme.border
+                                    Text { anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; verticalAlignment: Text.AlignVCenter
+                                           elide: Text.ElideMiddle; color: panel.dim; font.pixelSize: 11
+                                           text: (webLoader.item && webLoader.item.title ? webLoader.item.title + "  —  " : "")
+                                                 + decodeURIComponent(String(panel.run.previewUrl || "").replace("file:///", "")) }
+                                }
+                                PButton { text: "↻"; topPadding: 2; bottomPadding: 2; onClicked: if (webLoader.item) webLoader.item.reload() }
+                                PButton { text: "Mở trình duyệt"; topPadding: 2; bottomPadding: 2; tint: Theme.blue
+                                          onClicked: Qt.openUrlExternally(panel.run.previewUrl) }
+                            }
+                            Rectangle { anchors.bottom: parent.bottom; height: 2; color: panel.cyan; z: 2
+                                        width: webLoader.item && webLoader.item.loading ? parent.width * webLoader.item.progress / 100 : 0 }
+                        }
+                        Loader {
+                            id: webLoader
+                            Layout.fillWidth: true; Layout.fillHeight: true
+                            active: panel.webLoaded && panel.hasPreview
+                            source: "HtmlPreview.qml"
+                            function reloadSoon() { if (item) item.reload() }
+                            onLoaded: item.url = Qt.binding(() => panel.run.previewUrl || "")
+                            Text {
+                                anchors.centerIn: parent; width: parent.width - 60; visible: webLoader.status === Loader.Error
+                                horizontalAlignment: Text.AlignHCenter; wrapMode: Text.Wrap; color: panel.dim; font.pixelSize: 13
+                                text: "Bản NEXA này không có trình duyệt nhúng — bấm “Mở trình duyệt” để xem trang."
+                            }
+                        }
+                    }
+                }
+
+                // cửa sổ đầu ra kiểu terminal (khi xem trang: thu nhỏ thành console của trang)
+                Rectangle {
+                    id: term
+                    objectName: "runTerm"
+                    visible: panel.hasRun && (panel.view === "run" || panel.view === "web")
+                    Layout.fillWidth: true
+                    Layout.fillHeight: panel.view === "run"
+                    // khi xem trang: console thu gọn thành một thanh (bấm để mở), trang được gần hết chỗ
+                    property bool consoleOpen: false
+                    readonly property bool collapsed: panel.view === "web" && !consoleOpen
+                    Layout.preferredHeight: panel.view === "web" ? (consoleOpen ? Math.max(120, Math.min(200, panel.height * 0.22)) : 30) : -1
+                    Layout.minimumHeight: collapsed ? 30 : 110
+                    radius: 1; color: panel.termBg; border.color: Theme.border; clip: true
+                    ColumnLayout {
+                        anchors.fill: parent; spacing: 0
+                        Rectangle {
+                            Layout.fillWidth: true; height: 30; color: Theme.surface; radius: 1
+                            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.border }
+                            MouseArea { anchors.fill: parent; enabled: panel.view === "web"; cursorShape: Qt.PointingHandCursor
+                                        onClicked: term.consoleOpen = !term.consoleOpen }
+                            RowLayout {
+                                anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 8; spacing: 8
+                                Text { visible: panel.view === "web"; text: term.consoleOpen ? "▾" : "▸"; color: panel.cyan; font.pixelSize: 12 }
+                                Text { text: ">_"; color: S.amber; font.family: S.mono; font.pixelSize: 12; font.bold: true }
+                                Text { text: panel.view === "web" ? "CONSOLE" : "ĐẦU RA"; color: Theme.textPrimary; font.pixelSize: 11
+                                       font.family: panel.tacFont; font.letterSpacing: 2.5 }
+                                Text { text: (panel.run.lines || 0) + " dòng"; color: Theme.textMuted; font.pixelSize: 10 }
+                                Item { Layout.fillWidth: true }
+                                Text { visible: !termFlick.follow && termFlick.contentHeight > termFlick.height; color: panel.cyan; font.pixelSize: 11
+                                       text: "↓ Xuống cuối"
+                                       MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: termFlick.toEnd() } }
+                                Text { text: "Sao chép"; color: panel.dim; font.pixelSize: 11
+                                       MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: nexaCode.copyRunOutput() } }
+                            }
+                        }
+                        Flickable {
+                            id: termFlick
+                            objectName: "termFlick"
+                            visible: !term.collapsed
+                            Layout.fillWidth: true; Layout.fillHeight: true
+                            contentWidth: width; contentHeight: termText.implicitHeight + 16
+                            boundsBehavior: Flickable.StopAtBounds; clip: true
+                            property bool follow: true
+                            function toEnd() { contentY = Math.max(0, contentHeight - height); follow = true }
+                            onMovementEnded: follow = contentY >= contentHeight - height - 4
+                            onContentHeightChanged: if (follow) Qt.callLater(toEnd)
+                            onHeightChanged: if (follow) Qt.callLater(toEnd)
+                            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                            TextEdit {
+                                id: termText
+                                x: 12; y: 8; width: termFlick.width - 24
+                                readOnly: true; selectByMouse: true; persistentSelection: true
+                                textFormat: TextEdit.RichText; wrapMode: TextEdit.Wrap
+                                font.family: panel.monoFamily; font.pixelSize: 12
+                                color: Theme.textPrimary; selectionColor: Theme.borderStrong; selectedTextColor: "white"
+                                text: panel.run.html || ""
+                            }
+                            Text {
+                                visible: !panel.run.html; x: 12; y: 10; color: Theme.textMuted; font.pixelSize: 12; font.family: panel.monoFamily
+                                text: panel.run.running ? "Đang khởi động chương trình…" : "(Chương trình không in gì ra màn hình)"
+                            }
+                        }
+                    }
+                }
+
+                // ô nhập cho chương trình (input(), cin, Scanner…)
+                Rectangle {
+                    visible: panel.view === "run" && panel.run.running === true && panel.run.steps > 0 && panel.run.step === panel.run.steps
+                    Layout.fillWidth: true; height: 38; radius: 1; color: Theme.surface
+                    border.color: panel.run.waitingInput ? Theme.amber : (stdinField.activeFocus ? panel.cyan : Theme.border)
+                    RowLayout {
+                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 4; spacing: 8
+                        Text { text: ">"; color: S.amber; font.family: S.mono; font.pixelSize: 16; font.bold: true }
+                        TextField {
+                            id: stdinField
+                            Layout.fillWidth: true
+                            placeholderText: panel.run.waitingInput ? "Chương trình đang chờ anh nhập — gõ rồi nhấn Enter"
+                                                                    : "Nhập dữ liệu cho chương trình (Enter để gửi)"
+                            color: "white"; font.pixelSize: 13; font.family: panel.monoFamily
+                            placeholderTextColor: panel.run.waitingInput ? "#b99a4f" : Theme.textMuted
+                            background: Item {}
+                            onAccepted: { nexaCode.sendInput(text); text = "" }
+                        }
+                        PButton { text: "Gửi"; tint: Theme.amber; onClicked: { nexaCode.sendInput(stdinField.text); stdinField.text = "" } }
+                    }
+                }
+
+                // nút của bảng kết quả
+                Flow {
+                    visible: panel.view === "run" && panel.hasRun
+                    Layout.fillWidth: true; spacing: 8
+                    PButton { text: "■ Dừng"; tint: Theme.danger; visible: panel.run.running === true; onClicked: nexaCode.stopRun() }
+                    PButton { text: "↻ Chạy lại"; tint: Theme.success; visible: panel.run.running !== true; onClicked: nexaCode.rerun() }
+                    PButton { text: "Sao chép kết quả"; onClicked: nexaCode.copyRunOutput() }
+                    PButton { text: "✦ Sửa lỗi bằng AI"; tint: Theme.amber
+                              visible: panel.hasResult && panel.run.source === "code" && panel.run.running === false
+                                       && ["failed", "build_failed", "timeout", "no_tests"].indexOf(panel.run.state) >= 0
+                              enabled: !nexaCode.busy; onClicked: { panel.view = "code"; nexaCode.fixRunErrors() } }
+                    PButton { text: "Mở trong console riêng"; tint: Theme.silver; visible: panel.run.source === "file" && panel.run.steps > 0
+                              onClicked: nexaCode.runInConsole()
+                              ToolTip.visible: hovered; ToolTip.delay: 400
+                              ToolTip.text: "Cho chương trình cần màn hình terminal thật (C/C++ chờ nhập mà chưa in lời nhắc, menu vẽ bằng ký tự…)." }
+                }
+
+                // chỉnh sửa tiếp
+                RowLayout {
+                    visible: panel.hasResult && panel.view === "code"
+                    spacing: 8
+                    TextField {
+                        id: refineField
+                        Layout.fillWidth: true
+                        placeholderText: "Yêu cầu chỉnh sửa, ví dụ: “thêm tham số timeout”, “đổi sang async”, “viết lại bằng TypeScript”…"
+                        color: "white"; font.pixelSize: 13; placeholderTextColor: Theme.textMuted
+                        background: Rectangle { radius: 1; color: Theme.surface; border.color: refineField.activeFocus ? panel.cyan : Theme.border }
+                        onAccepted: refineBtn.clicked()
+                    }
+                    PButton { id: refineBtn; text: "Chỉnh sửa"; enabled: !nexaCode.busy && refineField.text.trim().length > 0
+                              onClicked: { panel.view = "code"; nexaCode.refine(refineField.text.trim()); refineField.text = "" } }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,6 @@
+-r requirements.txt
+pytest>=8.0
+pyinstaller>=6.10
+pyflakes>=3
+# Optional reference-library conversion; exported GLB files do not need MuJoCo at runtime.
+mujoco>=3.3,<4

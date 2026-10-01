@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "NEXA Bridge",
+  "version": "1.0.0",
+  "description": "Cho phép ứng dụng NEXA trên máy này tạm dừng/phát tiếp đúng tab YouTube do anh gắn.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAutBvKwv6NZbPMPuGblngTqeHi9gWXPO6AHHt4tX8IW3mwMFYhto5OD65oatOkrMeADDUO6WOUPLfERWw0C9XDcBy/2FslsWhHHDNUIXcqG7orb5a9HMwgh9epbZckm6+gu+/g5wBFvv6rKPXSBE28ENlmZW7G3zeEd1kv/10CnMUOdPmprURtPg3NZJgcShcUBwPoUyB9hmtjtW38u1LxqSYKezBlCA0lsx7SivPKUvlzW9Ffnt/j9jUB18UhP12/Lc1p6r0zfBPR9OGY75ffZLv8YkcfKjehqoDBudRg0T/uGTdvrBcV/JhmiNBbivB8431FwjByMk8FDCyeodDzwIDAQAB",
+  "minimum_chrome_version": "110",
+  "permissions": ["nativeMessaging"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_title": "NEXA Bridge",
+    "default_popup": "popup.html"
+  }
+}

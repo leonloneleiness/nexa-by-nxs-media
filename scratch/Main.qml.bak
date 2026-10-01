@@ -1,0 +1,536 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import QtQuick.Window
+
+ApplicationWindow {
+    id: win
+    width: 1320; height: 820
+    minimumWidth: nexa.compact ? 200 : 600
+    minimumHeight: nexa.compact ? 200 : 640
+    visible: true
+    title: "NEXA — by NXS MEDIA"
+    color: "#040914"
+    flags: nexa.compact ? (Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool) : Qt.Window
+
+    readonly property color cyan: "#22d3ee"
+    readonly property color blue: "#3b82f6"
+    readonly property color purple: "#a855f7"
+    readonly property color panel: "#0a1428"
+    readonly property color panelBorder: "#16325a"
+    readonly property color textDim: "#8fb3d1"
+    property var savedGeometry: null
+    // Trình xem 3D mở SONG SONG với giao diện NEXA (cột phải), không che NEXA.
+    readonly property bool viewer3dOpen: nexa3d.viewerOpen
+    // Sinh code cũng mở SONG SONG (cột phải) như trình xem 3D; đang mở code thì trình xem 3D nhường chỗ.
+    readonly property bool codeShown: nexaCode.panelOpen && !nexa.compact
+    readonly property bool viewerShown: viewer3dOpen && !nexa.compact && !codeShown
+    readonly property bool sideShown: viewerShown || codeShown
+    // cột NEXA khi có bảng bên phải: đủ cho quả cầu + hội thoại, phần còn lại cho bảng (≥ bề ngang iPad mini khi đủ chỗ)
+    readonly property real sideNexaWidth: Math.max(360, Math.min(520, win.width * 0.32))
+    // Cửa sổ hẹp (NEXA xếp cạnh ứng dụng vừa mở — nexa/desktop/side_by_side.py): quả cầu trên, hội thoại dưới.
+    readonly property bool narrow: !nexa.compact && width < 1000
+    readonly property bool stacked: sideShown || narrow
+    property bool autoMaximized: false
+    function makeRoom() {
+        if (nexa.compact) win.enterCompact(false)
+        if (win.visibility === Window.Minimized || !win.visible) win.showNormal()
+        if (win.visibility === Window.Windowed && win.width < 1500) { autoMaximized = true; win.showMaximized() }
+        win.raise()
+    }
+    onSideShownChanged: {
+        if (sideShown) makeRoom()
+        else if (autoMaximized) {
+            autoMaximized = false
+            if (win.visibility === Window.Maximized) win.showNormal()
+        }
+    }
+    onViewer3dOpenChanged: if (viewer3dOpen && nexa.compact) win.enterCompact(false)
+
+    Connections {
+        target: nexa3d
+        function onToast(text, isError) { toastBox.show(text, isError) }
+    }
+    Connections {
+        target: nexaCode
+        function onToast(text, isError) { toastBox.show(text, isError) }
+        function onPanelChanged() {
+            if (nexaCode.panelOpen) {
+                if (nexa.compact) win.enterCompact(false)
+                if (win.visibility === Window.Minimized || !win.visible) win.showNormal()
+            }
+        }
+    }
+    Connections {
+        target: nexa
+        function onToast(text, isError) { toastBox.show(text, isError) }
+        // Vỗ tay đánh thức sau lúc vắng: đưa NEXA lên trước để chào anh.
+        function onRaiseWindow() {
+            if (win.visibility === Window.Minimized || !win.visible) win.showNormal()
+            win.raise()
+            win.requestActivate()
+        }
+    }
+    Component.onCompleted: {
+        if (nexa.smokeOpen === "settings") settingsPopup.open()
+        else if (nexa.smokeOpen === "gestures") gesturePanel.visible = true
+        else if (nexa.smokeOpen === "3d") nexa3d.workspace = true
+        else if (nexa.smokeOpen === "code") nexaCode.openPanel()
+    }
+
+    function enterCompact(on) {
+        if (on) {
+            savedGeometry = { x: win.x, y: win.y, w: win.width, h: win.height }
+            nexa.compact = true
+            win.width = 230; win.height = 230
+            win.x = Screen.desktopAvailableWidth - 250 + Screen.virtualX
+            win.y = Screen.desktopAvailableHeight - 260 + Screen.virtualY
+        } else {
+            nexa.compact = false
+            if (savedGeometry) { win.x = savedGeometry.x; win.y = savedGeometry.y; win.width = savedGeometry.w; win.height = savedGeometry.h }
+        }
+    }
+
+    // ---------- thành phần tái sử dụng ----------
+    component NButton: Button {
+        id: nb
+        property color tint: win.cyan
+        property bool danger: false
+        font.pixelSize: 13
+        leftPadding: 14; rightPadding: 14; topPadding: 7; bottomPadding: 7
+        contentItem: Text { text: nb.text; font: nb.font; color: nb.enabled ? "white" : "#5b7089"
+                            horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight }
+        background: Rectangle {
+            radius: 8
+            color: nb.danger ? (nb.down ? "#9f1239" : "#be123c") : (nb.down ? Qt.darker(nb.tint, 2.2) : (nb.hovered ? "#12305a" : "#0d2142"))
+            border.color: nb.danger ? "#fb7185" : Qt.rgba(nb.tint.r, nb.tint.g, nb.tint.b, nb.hovered ? 0.9 : 0.45)
+            border.width: 1
+        }
+    }
+    component Chip: Rectangle {
+        id: chip
+        property string label: ""
+        property string value: ""
+        property int level: 0     // 0 tắt, 1 tốt, 2 cảnh báo, 3 lỗi
+        radius: 12; height: 26
+        width: chipRow.implicitWidth + 20
+        color: "#0b1a33"
+        border.color: level === 1 ? "#1f9d8b" : level === 2 ? "#b7791f" : level === 3 ? "#be123c" : "#1e3352"
+        Row {
+            id: chipRow; anchors.centerIn: parent; spacing: 6
+            Rectangle { width: 8; height: 8; radius: 4; anchors.verticalCenter: parent.verticalCenter
+                        color: chip.level === 1 ? "#34d399" : chip.level === 2 ? "#fbbf24" : chip.level === 3 ? "#fb7185" : "#475569" }
+            Text { text: chip.label; color: win.textDim; font.pixelSize: 12 }
+            Text { text: chip.value; color: "white"; font.pixelSize: 12; font.bold: true; elide: Text.ElideRight
+                   width: Math.min(implicitWidth, 150) }
+        }
+    }
+
+    // ---------- nền ----------
+    Rectangle {
+        anchors.fill: parent
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#050c1c" }
+            GradientStop { position: 0.55; color: "#040914" }
+            GradientStop { position: 1.0; color: "#070417" }
+        }
+        visible: !nexa.compact
+    }
+
+    // ---------- chế độ thu gọn ----------
+    Item {
+        anchors.fill: parent
+        visible: nexa.compact
+        Orb { anchors.fill: parent; appState: nexa.state; micLevel: nexa.micLevel; outLevel: nexa.outLevel; outBands: nexa.outBands
+              effects: nexa.effects === "full" ? "reduced" : nexa.effects }
+        MouseArea {
+            anchors.fill: parent
+            property point press
+            onPressed: (m) => press = Qt.point(m.x, m.y)
+            onPositionChanged: (m) => { if (pressed) { win.x += m.x - press.x; win.y += m.y - press.y } }
+            onDoubleClicked: win.enterCompact(false)
+        }
+        Text { anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottomMargin: 6
+               text: nexa.stateLabel; color: "white"; font.pixelSize: 11; style: Text.Outline; styleColor: "#040914" }
+        Rectangle {
+            anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 6
+            width: 26; height: 26; radius: 13; color: "#be123c"
+            Text { anchors.centerIn: parent; text: "■"; color: "white"; font.pixelSize: 12 }
+            MouseArea { anchors.fill: parent; onClicked: nexa.stop() }
+        }
+    }
+
+    // ---------- giao diện đầy đủ ----------
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: 14
+        spacing: 12
+        visible: !nexa.compact
+
+        // Thanh tiêu đề
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 10
+            Column {
+                spacing: 0
+                Row {
+                    spacing: 8
+                    Text { text: "NEXA"; color: win.cyan; font.pixelSize: 28; font.bold: true; font.letterSpacing: 6 }
+                    Text { text: "— by NXS MEDIA"; color: "#c4b5fd"; font.pixelSize: 15; anchors.bottom: parent.bottom; anchors.bottomMargin: 4 }
+                }
+                Text { text: "Trợ lý của anh Nguyễn Xuân Sơn"; color: win.textDim; font.pixelSize: 12 }
+            }
+            Item { Layout.fillWidth: true }
+            Flow {
+                Layout.preferredWidth: Math.min(640, win.width - 330)
+                spacing: 6
+                layoutDirection: Qt.RightToLeft
+                Chip { label: "Mic"; value: (nexa.status.mic && nexa.status.mic.ok) ? "bật" : "lỗi"
+                       level: (nexa.status.mic && nexa.status.mic.ok) ? 1 : 3 }
+                Chip { label: "Camera"; value: nexa.cameraOn ? "ĐANG DÙNG" : "tắt"; level: nexa.cameraOn ? 2 : 0 }
+                Chip { label: "AI"; value: (nexa.status.ai && nexa.status.ai.ok) ? "Gemini" : "Cơ bản"
+                       level: (nexa.status.ai && nexa.status.ai.ok) ? 1 : 2 }
+                Chip { label: "STT"; value: (nexa.status.stt && nexa.status.stt.ready) ? nexa.status.stt.model : ((nexa.status.stt && nexa.status.stt.loading) ? "đang nạp" : "chưa sẵn sàng")
+                       level: (nexa.status.stt && nexa.status.stt.ready) ? 1 : 2 }
+                Chip { label: "Giọng"; value: (nexa.status.tts && nexa.status.tts.backend) ? nexa.status.tts.backend : ((nexa.status.tts && nexa.status.tts.chain && nexa.status.tts.chain.length) ? "chờ" : "chữ")
+                       level: (nexa.status.tts && nexa.status.tts.backend) ? 1 : 0 }
+                Chip { label: "Bridge"; value: (nexa.status.bridge && nexa.status.bridge.connected) ? nexa.status.bridge.browsers.join(", ") : "chưa nối"
+                       level: (nexa.status.bridge && nexa.status.bridge.connected) ? 1 : 0 }
+                Chip { label: "Quyền"; value: nexa.status.autonomy === "full" ? "TOÀN QUYỀN" : "tiêu chuẩn"
+                       level: nexa.status.autonomy === "full" ? 2 : 1 }
+                Chip { visible: nexa.visionSending; label: "Đang gửi ảnh"; value: "Gemini"; level: 2 }
+                Chip { visible: nexa3d.activeJob.id !== undefined && nexa3d.activeJob.terminal === false; label: "3D"
+                       value: (nexa3d.activeJob.label || "") + " " + Math.round((nexa3d.activeJob.progress || 0) * 100) + "%"; level: 2
+                       MouseArea { anchors.fill: parent; onClicked: nexa3d.workspace = true } }
+                Chip { visible: nexaCode.busy; label: "Code"
+                       value: (nexaCode.job.message || "") + " " + Math.round((nexaCode.job.progress || 0) * 100) + "%"; level: 2
+                       MouseArea { anchors.fill: parent; onClicked: nexaCode.openPanel() } }
+            }
+        }
+
+        // Nội dung chính
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            spacing: 14
+
+            // NEXA: 2 cột (quả cầu | hội thoại) hoặc xếp dọc khi trình xem 3D mở bên phải
+            GridLayout {
+                id: mainGrid
+                objectName: "mainGrid"
+                Layout.fillWidth: !win.codeShown
+                Layout.preferredWidth: win.codeShown ? win.sideNexaWidth : -1
+                Layout.maximumWidth: win.codeShown ? win.sideNexaWidth : Number.POSITIVE_INFINITY
+                Layout.fillHeight: true
+                columns: win.stacked ? 1 : 2
+                columnSpacing: 14; rowSpacing: 10
+                // Cột quả cầu
+                Rectangle {
+                    Layout.fillHeight: !win.stacked
+                    Layout.fillWidth: win.stacked
+                    Layout.preferredWidth: win.stacked ? -1 : win.width * 0.46
+                    Layout.minimumWidth: win.stacked ? 0 : 380
+                    Layout.preferredHeight: win.stacked ? Math.max(260, mainGrid.height * 0.4) : -1
+                    color: "transparent"
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 6
+                        Orb {
+                            id: mainOrb
+                            Layout.fillWidth: true; Layout.fillHeight: true
+                            appState: nexa.state; micLevel: nexa.micLevel; outLevel: nexa.outLevel; outBands: nexa.outBands; effects: nexa.effects
+                            MouseArea { anchors.fill: parent; onDoubleClicked: nexa.wake() }
+                            Text {
+                                visible: nexa.showFps
+                                anchors.left: parent.left; anchors.top: parent.top
+                                text: "FPS đo được: " + mainOrb.measuredFps.toFixed(0); color: "#4b6a8a"; font.pixelSize: 11
+                            }
+                        }
+                        Text { Layout.alignment: Qt.AlignHCenter; text: nexa.stateLabel; color: "white"; font.pixelSize: 22; font.bold: true }
+                        Text { Layout.alignment: Qt.AlignHCenter; Layout.maximumWidth: parent.width - 20
+                               text: nexa.stateDetail; color: win.textDim; font.pixelSize: 13; elide: Text.ElideRight
+                               visible: text.length > 0 && nexa.state !== "STANDBY" }
+                        Rectangle {
+                            Layout.alignment: Qt.AlignHCenter
+                            Layout.preferredWidth: Math.min(parent.width - 20, heard.implicitWidth + 30)
+                            Layout.preferredHeight: 34; radius: 17
+                            color: "#0b1a33"; border.color: nexa.listeningSpeech ? win.cyan : win.panelBorder
+                            visible: nexa.heardText.length > 0 || nexa.listeningSpeech
+                            Text { id: heard; anchors.centerIn: parent; width: Math.min(implicitWidth, parent.width - 24)
+                                   elide: Text.ElideRight; color: "white"; font.pixelSize: 14
+                                   text: nexa.listeningSpeech ? "Em đang nghe…" : "Em nghe: " + nexa.heardText }
+                        }
+                        GridLayout {
+                            Layout.alignment: Qt.AlignHCenter
+                            columns: win.stacked && parent.width < 620 ? 3 : 5
+                            columnSpacing: 8; rowSpacing: 6
+                            NButton { text: nexa.state === "STANDBY" ? "Đánh thức (Ctrl+Alt+N)" : "Nhấn để nói"; onClicked: nexa.state === "STANDBY" ? nexa.wake() : nexa.pushToTalk() }
+                            NButton { text: "Nghỉ"; enabled: nexa.state !== "STANDBY"; onClicked: nexa.sleep() }
+                            NButton { text: nexa.cameraOn ? "Tắt cử chỉ" : "Bật cử chỉ"; tint: win.purple; onClicked: nexa.toggleGestures() }
+                            NButton { text: "Cử chỉ ▸"; onClicked: gesturePanel.visible = !gesturePanel.visible }
+                            NButton { text: "Mô hình 3D ▸"; tint: win.cyan; onClicked: nexa3d.workspace = !nexa3d.workspace }
+                            NButton { text: "Sinh code ▸"; tint: win.blue; onClicked: nexaCode.panelOpen ? nexaCode.closePanel() : nexaCode.openPanel() }
+                        }
+                    }
+                }
+
+                // Cột hội thoại + tác vụ
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    spacing: 10
+
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.fillHeight: true
+                        color: win.panel; radius: 14; border.color: win.panelBorder
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: 12; spacing: 8
+                            RowLayout {
+                                Text { text: "Hội thoại"; color: "white"; font.pixelSize: 16; font.bold: true }
+                                Item { Layout.fillWidth: true }
+                                Text { text: nexa.foreground.length > 3 ? "Cửa sổ đích: " + nexa.foreground : ""; color: win.textDim
+                                       font.pixelSize: 11; elide: Text.ElideMiddle; Layout.maximumWidth: 300 }
+                                NButton { text: "Xóa"; font.pixelSize: 11; onClicked: nexa.clearConversation() }
+                            }
+                            ListView {
+                                id: chat
+                                Layout.fillWidth: true; Layout.fillHeight: true
+                                clip: true; spacing: 8
+                                model: nexa.messages
+                                onCountChanged: Qt.callLater(function() { chat.positionViewAtEnd() })
+                                delegate: Item {
+                                    width: chat.width
+                                    height: bubble.height
+                                    Rectangle {
+                                        id: bubble
+                                        anchors.right: modelData.role === "user" ? parent.right : undefined
+                                        anchors.left: modelData.role === "user" ? undefined : parent.left
+                                        width: Math.min(chat.width * 0.82, msg.implicitWidth + 26)
+                                        height: msg.implicitHeight + meta.implicitHeight + 18
+                                        radius: 12
+                                        color: modelData.role === "user" ? "#10284d" : "#101a33"
+                                        border.color: modelData.role === "user" ? "#1d4ed8" : "#5b21b6"
+                                        Column {
+                                            anchors.fill: parent; anchors.margins: 9; spacing: 2
+                                            Text { id: meta; color: win.textDim; font.pixelSize: 10
+                                                   text: (modelData.role === "user" ? (modelData.source === "voice" ? "Anh Sơn (giọng nói)" : "Anh Sơn") : "NEXA") + " · " + modelData.time }
+                                            Text { id: msg; width: Math.min(chat.width * 0.82 - 26, implicitWidth); text: modelData.text
+                                                   color: "white"; font.pixelSize: 14; wrapMode: Text.Wrap; textFormat: Text.PlainText }
+                                        }
+                                    }
+                                }
+                            }
+                            RowLayout {
+                                spacing: 8
+                                TextField {
+                                    id: input
+                                    Layout.fillWidth: true
+                                    placeholderText: "Nhập lệnh cho NEXA… (ví dụ: mở Notepad, đặt âm lượng 30 phần trăm)"
+                                    color: "white"; font.pixelSize: 14
+                                    placeholderTextColor: "#5b7a99"
+                                    background: Rectangle { radius: 10; color: "#081226"; border.color: input.activeFocus ? win.cyan : win.panelBorder }
+                                    onAccepted: { if (text.trim().length) { nexa.sendText(text); text = "" } }
+                                }
+                                NButton { text: "Gửi"; onClicked: { if (input.text.trim().length) { nexa.sendText(input.text); input.text = "" } } }
+                                NButton { text: "🎤 Nói"; tint: win.purple; onClicked: nexa.pushToTalk() }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredHeight: win.stacked ? 130 : 180
+                        color: win.panel; radius: 14; border.color: win.panelBorder
+                        ColumnLayout {
+                            anchors.fill: parent; anchors.margins: 12; spacing: 6
+                            RowLayout {
+                                Text { text: "Tác vụ"; color: "white"; font.pixelSize: 16; font.bold: true }
+                                Item { Layout.fillWidth: true }
+                                Text { text: nexa.statusText; color: win.textDim; font.pixelSize: 11; elide: Text.ElideRight; Layout.maximumWidth: 420 }
+                            }
+                            ListView {
+                                id: tasks
+                                Layout.fillWidth: true; Layout.fillHeight: true
+                                clip: true; spacing: 3
+                                model: nexa.tasks
+                                delegate: RowLayout {
+                                    width: tasks.width; spacing: 8
+                                    Rectangle { width: 8; height: 8; radius: 4
+                                                color: modelData.status === "done" ? "#34d399" : modelData.status === "running" || modelData.status === "queued" ? win.cyan
+                                                     : modelData.status === "confirming" ? "#fbbf24"
+                                                     : modelData.status === "auto_approved" ? "#a855f7" : "#fb7185" }
+                                    Text { text: modelData.time; color: "#4b6a8a"; font.pixelSize: 11 }
+                                    Text { text: modelData.title; color: "white"; font.pixelSize: 12; font.bold: true }
+                                    Text { text: "[" + modelData.source + "]"; color: "#6b7fa0"; font.pixelSize: 11 }
+                                    Text { Layout.fillWidth: true; text: modelData.message; color: win.textDim; font.pixelSize: 12; elide: Text.ElideRight }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Mô hình 3D (tệp riêng; Loader để lỗi plugin Qt Quick 3D không ảnh hưởng giao diện chính)
+            Loader {
+                id: viewer3d
+                objectName: "viewer3d"
+                active: win.viewerShown
+                visible: active
+                focus: active
+                Layout.fillHeight: true
+                Layout.preferredWidth: Math.max(560, Math.min(win.width * 0.6, win.width - 520))
+                source: "ModelViewer.qml"
+                onStatusChanged: if (status === Loader.Error) toastBox.show("Không nạp được trình xem 3D (thiếu Qt Quick 3D?). Xem logs/nexa.log.", true)
+            }
+
+            // Sinh code (cột phải, giống trình xem 3D): NEXA vẫn hiện đầy đủ bên trái
+            Loader {
+                id: codePanel
+                objectName: "codePanel"
+                active: win.codeShown
+                visible: active
+                Layout.fillHeight: true
+                Layout.preferredWidth: Math.max(560, win.width - 28 - 14 - win.sideNexaWidth)
+                sourceComponent: Component { CodePanel { onCloseRequested: nexaCode.closePanel() } }
+            }
+        }
+
+        // Thanh dừng khẩn cấp — luôn hiển thị
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 10
+            NButton { text: win.narrow ? "■ DỪNG (Ctrl+Alt+Esc)" : "■  DỪNG KHẨN CẤP  (Ctrl+Alt+Esc)"; danger: true
+                      font.pixelSize: win.narrow ? 13 : 15; font.bold: true
+                      Layout.preferredWidth: win.narrow ? 200 : 330; onClicked: nexa.stop() }
+            NButton { text: win.narrow ? "Hủy" : "Hủy tác vụ"; onClicked: nexa.cancelTask() }
+            NButton { visible: nexa.controlPaused; text: "▶ Tiếp tục điều khiển"; tint: "#34d399"; onClicked: nexa.resumeControl() }
+            Text { visible: nexa.controlPaused; text: "Điều khiển đang tạm khóa sau lệnh dừng."; color: "#fbbf24"; font.pixelSize: 13 }
+            Item { Layout.fillWidth: true }
+            NButton { text: "Cài đặt"; onClicked: settingsPopup.open() }
+            NButton { text: "Thu gọn"; onClicked: win.enterCompact(true) }
+            NButton { text: "Thoát"; onClicked: nexa.quit() }
+        }
+    }
+
+    // ---------- Bảng cử chỉ ----------
+    GesturePanel {
+        id: gesturePanel
+        visible: false
+        anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom
+        anchors.margins: 14; anchors.topMargin: 70; anchors.bottomMargin: 60
+        width: 380
+        z: 5
+        onCloseRequested: visible = false
+    }
+
+    // ---------- Mô hình 3D (tệp riêng; Loader để lỗi plugin Qt Quick 3D không ảnh hưởng giao diện chính) ----------
+    Loader {
+        id: generation3d
+        active: nexa3d.workspace && !nexa3d.viewerOpen && !nexa.compact
+        anchors.centerIn: parent
+        width: Math.min(win.width - 80, 980); height: Math.min(win.height - 90, 680)
+        z: 18
+        sourceComponent: Component { ModelGenerationPanel { onCloseRequested: nexa3d.workspace = false } }
+    }
+    // (trình xem 3D nằm trong "Nội dung chính", cạnh cột NEXA)
+
+    // (Sinh code nằm trong "Nội dung chính", cạnh cột NEXA)
+
+    // ---------- Hộp xác nhận ----------
+    Popup {
+        id: confirmPopup
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        visible: nexa.confirmation.active === true
+        anchors.centerIn: parent
+        width: Math.min(win.width - 80, nexa.confirmation.previewUrl ? 900 : 560)
+        padding: 20
+        property int remaining: nexa.confirmation.timeout || 30
+        onVisibleChanged: { if (visible) { remaining = nexa.confirmation.timeout || 30; cropRect.reset() } }
+        Timer { interval: 1000; repeat: true; running: confirmPopup.visible; onTriggered: confirmPopup.remaining = Math.max(0, confirmPopup.remaining - 1) }
+        background: Rectangle { radius: 16; color: "#0b1220"; border.color: "#f59e0b"; border.width: 2 }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Text { text: "Cần anh xác nhận"; color: "#fbbf24"; font.pixelSize: 20; font.bold: true }
+            Text { Layout.fillWidth: true; text: nexa.confirmation.description || ""; color: "white"; font.pixelSize: 15; wrapMode: Text.Wrap }
+            Item {
+                id: previewBox
+                visible: !!nexa.confirmation.previewUrl
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible ? Math.min(420, width * (nexa.confirmation.preview_height || 1) / Math.max(1, nexa.confirmation.preview_width || 1)) : 0
+                Image {
+                    id: shot
+                    anchors.fill: parent
+                    source: nexa.confirmation.previewUrl || ""
+                    fillMode: Image.PreserveAspectFit
+                    cache: false
+                }
+                // Kéo chuột để chọn vùng gửi đi (tọa độ quy đổi về pixel ảnh gốc).
+                Rectangle {
+                    id: cropRect
+                    property bool has: false
+                    function reset() { has = false; x = 0; y = 0; width = 0; height = 0 }
+                    visible: has
+                    color: "#2222d3ee"; border.color: win.cyan; border.width: 2
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    property point p0
+                    onPressed: (m) => { p0 = Qt.point(m.x, m.y); cropRect.has = true; cropRect.x = m.x; cropRect.y = m.y; cropRect.width = 0; cropRect.height = 0 }
+                    onPositionChanged: (m) => { cropRect.x = Math.min(p0.x, m.x); cropRect.y = Math.min(p0.y, m.y)
+                                                cropRect.width = Math.abs(m.x - p0.x); cropRect.height = Math.abs(m.y - p0.y) }
+                }
+                Text { anchors.bottom: parent.bottom; anchors.left: parent.left; color: win.textDim; font.pixelSize: 11
+                       text: "Kéo chuột trên ảnh để chỉ gửi một vùng. Không chọn = gửi toàn bộ ảnh trên." }
+            }
+            RowLayout {
+                spacing: 10
+                Text { text: "Tự hủy sau " + confirmPopup.remaining + " giây"; color: win.textDim; font.pixelSize: 12 }
+                Item { Layout.fillWidth: true }
+                NButton { text: "Hủy"; onClicked: nexa.deny(nexa.confirmation.id) }
+                NButton {
+                    text: "Đồng ý"; tint: "#34d399"
+                    onClicked: {
+                        var cx = 0, cy = 0, cw = 0, ch = 0
+                        if (cropRect.has && cropRect.width > 8 && cropRect.height > 8 && shot.paintedWidth > 0) {
+                            var ox = (shot.width - shot.paintedWidth) / 2, oy = (shot.height - shot.paintedHeight) / 2
+                            var sx = shot.sourceSize.width / shot.paintedWidth, sy = shot.sourceSize.height / shot.paintedHeight
+                            cx = Math.max(0, (cropRect.x - ox) * sx); cy = Math.max(0, (cropRect.y - oy) * sy)
+                            cw = cropRect.width * sx; ch = cropRect.height * sy
+                        }
+                        nexa.confirm(nexa.confirmation.id, cx, cy, cw, ch)
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------- Cài đặt ----------
+    Popup {
+        id: settingsPopup
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(win.width - 60, 1040); height: Math.min(win.height - 60, 720)
+        padding: 0
+        background: Rectangle { radius: 16; color: "#081226"; border.color: win.panelBorder }
+        contentItem: Loader {
+            active: settingsPopup.visible
+            sourceComponent: Component { Settings { onCloseRequested: settingsPopup.close() } }
+        }
+    }
+
+    // ---------- Thông báo nổi ----------
+    Rectangle {
+        id: toastBox
+        property bool isError: false
+        function show(text, err) { toastText.text = text; isError = err; opacity = 1; toastTimer.restart() }
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: parent.height - 120
+        width: Math.min(parent.width - 80, toastText.implicitWidth + 40); height: toastText.implicitHeight + 20
+        radius: 12; color: "#e6050b18"; border.color: isError ? "#fb7185" : win.cyan
+        opacity: 0; visible: opacity > 0; z: 50
+        Behavior on opacity { NumberAnimation { duration: 250 } }
+        Text { id: toastText; anchors.centerIn: parent; width: Math.min(implicitWidth, win.width - 120); color: "white"
+               font.pixelSize: 14; wrapMode: Text.Wrap }
+        Timer { id: toastTimer; interval: 3500; onTriggered: toastBox.opacity = 0 }
+    }
+}

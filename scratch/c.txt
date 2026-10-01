@@ -1,0 +1,2 @@
+spring|{"spring_type":"extension","free_length_mm":60,"wire_d_mm":1.5,"outer_d_mm":12}
+spring|{"spring_type":"torsion"}

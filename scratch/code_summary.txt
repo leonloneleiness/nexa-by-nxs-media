@@ -1,0 +1,357 @@
+nexa\app.py:
+  Functions: 4 functions
+nexa\__init__.py:
+nexa\ai\english_terms.py:
+  Functions: 3 functions
+nexa\ai\gemini_provider.py:
+  Classes: ['AIError', 'TurnResult', 'AIProvider', 'GeminiProvider']
+  Functions: 34 functions
+nexa\ai\intent_router.py:
+  Classes: ['Route', '_Text', 'IntentRouter']
+  Functions: 18 functions
+nexa\ai\prompts.py:
+  Functions: 1 functions
+nexa\ai\screen_vision.py:
+  Classes: ['ScreenVision']
+  Functions: 4 functions
+nexa\ai\site_search.py:
+  Classes: ['SearchSite']
+  Functions: 2 functions
+nexa\ai\tool_registry.py:
+  Classes: ['ToolSpec', 'ToolRegistry', 'Services']
+  Functions: 91 functions
+nexa\ai\__init__.py:
+nexa\audio\clap_detector.py:
+  Classes: ['ClapConfig', 'ClapEvent', 'ClapDetector']
+  Functions: 15 functions
+nexa\audio\context_bias.py:
+  Classes: ['ContextBias']
+  Functions: 12 functions
+nexa\audio\pipeline.py:
+  Classes: ['VadConfig', 'UtteranceSegmenter', 'AudioPipeline']
+  Functions: 27 functions
+nexa\audio\sfx.py:
+  Functions: 6 functions
+nexa\audio\stt.py:
+  Classes: ['SttResult', 'SpeechRecognizer']
+  Functions: 13 functions
+nexa\audio\tts.py:
+  Classes: ['_Job', 'EdgeBackend', 'WinRTBackend', 'SapiBackend', 'TTSManager']
+  Functions: 35 functions
+nexa\audio\voice_fx.py:
+  Functions: 2 functions
+nexa\audio\__init__.py:
+nexa\core\controller.py:
+  Classes: ['Controller', 'LASTINPUTINFO']
+  Functions: 65 functions
+nexa\core\events.py:
+  Classes: ['AppState', 'Risk', 'Source', 'GestureEvent', 'ToolCall', 'ToolResult', 'TaskEvent']
+  Functions: 7 functions
+nexa\core\executor.py:
+  Classes: ['ExecContext', '_WorkItem', 'Executor']
+  Functions: 18 functions
+nexa\core\hotkeys.py:
+  Classes: ['GlobalHotkeys']
+  Functions: 5 functions
+nexa\core\safety.py:
+  Classes: ['Cancelled', 'CancelToken', 'Assessment', 'PendingConfirmation', 'SafetyManager']
+  Functions: 22 functions
+nexa\core\state_machine.py:
+  Classes: ['StateMachine']
+  Functions: 6 functions
+nexa\core\__init__.py:
+nexa\desktop\admin.py:
+  Functions: 12 functions
+nexa\desktop\apps_and_files.py:
+  Classes: ['AppEntry', 'AppLauncher', 'FileService', 'Screenshotter']
+  Functions: 41 functions
+nexa\desktop\app_aliases.py:
+  Classes: ['KnownApp']
+  Functions: 5 functions
+nexa\desktop\bridge_server.py:
+  Classes: ['TabInfo', '_Peer', 'BridgeServer']
+  Functions: 23 functions
+nexa\desktop\input_control.py:
+  Classes: ['MOUSEINPUT', 'KEYBDINPUT', 'HARDWAREINPUT', '_INPUTUNION', 'INPUT', 'InputController']
+  Functions: 20 functions
+nexa\desktop\media.py:
+  Classes: ['Playback', 'MediaTarget', 'MediaBackend', 'BridgeBackend', 'GsmtcBackend', 'MediaController']
+  Functions: 39 functions
+nexa\desktop\monitors.py:
+  Classes: ['RoleResolution', 'MonitorManager']
+  Functions: 19 functions
+nexa\desktop\office.py:
+  Functions: 4 functions
+nexa\desktop\sleep_guard.py:
+  Classes: ['_REASON_CONTEXT', 'SleepGuard']
+  Functions: 13 functions
+nexa\desktop\system.py:
+  Classes: ['VolumeControl', 'MediaDucker']
+  Functions: 18 functions
+nexa\desktop\uia.py:
+  Functions: 23 functions
+nexa\desktop\win32api.py:
+  Classes: ['WINDOWPLACEMENT', 'MONITORINFOEXW', 'DISPLAY_DEVICEW', 'LUID', 'DISPLAYCONFIG_PATH_SOURCE_INFO', 'DISPLAYCONFIG_RATIONAL', 'DISPLAYCONFIG_PATH_TARGET_INFO', 'DISPLAYCONFIG_PATH_INFO', 'DISPLAYCONFIG_MODE_INFO', 'DISPLAYCONFIG_DEVICE_INFO_HEADER', 'DISPLAYCONFIG_SOURCE_DEVICE_NAME', 'DISPLAYCONFIG_TARGET_DEVICE_NAME', 'RawMonitor', 'Placement', 'Win32Api']
+  Functions: 37 functions
+nexa\desktop\windows.py:
+  Classes: ['WindowSnapshot', 'WindowManager']
+  Functions: 25 functions
+nexa\desktop\window_history.py:
+  Classes: ['WindowIdentity', 'MinimizedEntry', 'WindowHistory']
+  Functions: 7 functions
+nexa\desktop\youtube_ads.py:
+  Classes: ['PlayerState', '_Player', 'AutoSkipper']
+  Functions: 17 functions
+nexa\desktop\zalo.py:
+  Classes: ['TextBox', 'Unread']
+  Functions: 6 functions
+nexa\desktop\__init__.py:
+nexa\research\asr_metrics.py:
+  Classes: ['Score']
+  Functions: 15 functions
+nexa\research\corpus.py:
+  Classes: ['CorpusRecorder']
+  Functions: 10 functions
+nexa\research\templates.py:
+  Functions: 4 functions
+nexa\research\__init__.py:
+nexa\three_d\asset_store.py:
+  Classes: ['AssetStore']
+  Functions: 23 functions
+nexa\three_d\benchmark.py:
+  Classes: ['BenchCase']
+  Functions: 15 functions
+nexa\three_d\checklist.py:
+  Classes: ['ChecklistItem']
+  Functions: 3 functions
+nexa\three_d\gesture_controller.py:
+  Classes: ['VState', 'ViewerGestureParams', 'ViewerEvent', 'ViewerGestureStateMachine']
+  Functions: 18 functions
+nexa\three_d\intents.py:
+  Functions: 1 functions
+nexa\three_d\job_manager.py:
+  Classes: ['NeedsInput', 'JobFailed', 'Job', 'JobContext', 'JobManager']
+  Functions: 28 functions
+nexa\three_d\manifest.py:
+  Functions: 4 functions
+nexa\three_d\measure.py:
+  Classes: ['Check']
+  Functions: 66 functions
+nexa\three_d\models.py:
+  Classes: ['JobState', 'Material', 'Transform', 'Bounds', 'Part3D', 'ExplosionStep', 'Model3DProject']
+  Functions: 25 functions
+nexa\three_d\parse_tech.py:
+  Functions: 40 functions
+nexa\three_d\part_resolver.py:
+  Classes: ['ResolveResult']
+  Functions: 6 functions
+nexa\three_d\pipeline.py:
+  Classes: ['ModelBuild', 'GenerationPipeline']
+  Functions: 29 functions
+nexa\three_d\planner.py:
+  Classes: ['PlanResult', 'LocalPlanner', 'Planner']
+  Functions: 16 functions
+nexa\three_d\quality.py:
+  Classes: ['PartData', 'QualityReport', '_Checks']
+  Functions: 15 functions
+nexa\three_d\render.py:
+  Classes: ['RenderResult']
+  Functions: 15 functions
+nexa\three_d\review.py:
+  Functions: 3 functions
+nexa\three_d\service.py:
+  Classes: ['ThreeDService']
+  Functions: 16 functions
+nexa\three_d\spec.py:
+  Classes: ['SpecError', 'ModelSpec']
+  Functions: 16 functions
+nexa\three_d\spec_tech.py:
+  Classes: ['TechSpecError']
+  Functions: 8 functions
+nexa\three_d\standards.py:
+  Functions: 4 functions
+nexa\three_d\tools.py:
+  Functions: 21 functions
+nexa\three_d\validator.py:
+  Classes: ['AssetError', 'Limits', 'ValidationReport']
+  Functions: 11 functions
+nexa\three_d\viewer_controller.py:
+  Classes: ['ViewerController']
+  Functions: 40 functions
+nexa\three_d\__init__.py:
+nexa\three_d\generation\assembly.py:
+  Classes: ['PartDraft', 'BuiltPart', 'BuiltAssembly', 'AssemblyBuilder']
+  Functions: 12 functions
+nexa\three_d\generation\base.py:
+  Classes: ['ProviderError', 'ProviderTask', 'ThreeDProvider']
+  Functions: 15 functions
+nexa\three_d\generation\dsl_designer.py:
+  Classes: ['DslDesigner']
+  Functions: 11 functions
+nexa\three_d\generation\hf_provider.py:
+  Classes: ['_HFJob', 'HFSpaceProvider']
+  Functions: 23 functions
+nexa\three_d\generation\http.py:
+  Classes: ['HttpClient']
+  Functions: 5 functions
+nexa\three_d\generation\meshy_provider.py:
+  Classes: ['MeshyProvider']
+  Functions: 19 functions
+nexa\three_d\generation\parametric.py:
+  Classes: ['DslBuild']
+  Functions: 7 functions
+nexa\three_d\generation\tripo_provider.py:
+  Classes: ['TripoProvider']
+  Functions: 27 functions
+nexa\three_d\generation\templates\agv.py:
+  Functions: 2 functions
+nexa\three_d\generation\templates\bearing.py:
+  Functions: 1 functions
+nexa\three_d\generation\templates\board.py:
+  Functions: 5 functions
+nexa\three_d\generation\templates\boat.py:
+  Functions: 3 functions
+nexa\three_d\generation\templates\bridge.py:
+  Functions: 9 functions
+nexa\three_d\generation\templates\car.py:
+  Functions: 7 functions
+nexa\three_d\generation\templates\components.py:
+  Functions: 12 functions
+nexa\three_d\generation\templates\crane.py:
+  Functions: 4 functions
+nexa\three_d\generation\templates\cubesat.py:
+  Functions: 2 functions
+nexa\three_d\generation\templates\cylinder.py:
+  Functions: 3 functions
+nexa\three_d\generation\templates\details.py:
+  Functions: 17 functions
+nexa\three_d\generation\templates\enclosure.py:
+  Functions: 4 functions
+nexa\three_d\generation\templates\excavator.py:
+  Functions: 6 functions
+nexa\three_d\generation\templates\fan.py:
+  Functions: 3 functions
+nexa\three_d\generation\templates\fasteners.py:
+  Functions: 12 functions
+nexa\three_d\generation\templates\fixed_wing.py:
+  Functions: 10 functions
+nexa\three_d\generation\templates\forklift.py:
+  Functions: 4 functions
+nexa\three_d\generation\templates\gearbox.py:
+  Functions: 6 functions
+nexa\three_d\generation\templates\genset.py:
+  Functions: 2 functions
+nexa\three_d\generation\templates\heatsink.py:
+  Functions: 2 functions
+nexa\three_d\generation\templates\helicopter.py:
+  Functions: 2 functions
+nexa\three_d\generation\templates\humanoid.py:
+  Functions: 7 functions
+nexa\three_d\generation\templates\linear_motion.py:
+  Functions: 4 functions
+nexa\three_d\generation\templates\machine.py:
+  Functions: 51 functions
+nexa\three_d\generation\templates\mechanical.py:
+  Functions: 4 functions
+nexa\three_d\generation\templates\motorbike.py:
+  Functions: 6 functions
+nexa\three_d\generation\templates\piping.py:
+  Functions: 7 functions
+nexa\three_d\generation\templates\pump.py:
+  Functions: 2 functions
+nexa\three_d\generation\templates\quadruped.py:
+  Functions: 2 functions
+nexa\three_d\generation\templates\rack.py:
+  Functions: 9 functions
+nexa\three_d\generation\templates\robot_arm.py:
+  Functions: 8 functions
+nexa\three_d\generation\templates\robot_vacuum.py:
+  Functions: 1 functions
+nexa\three_d\generation\templates\rocket.py:
+  Functions: 3 functions
+nexa\three_d\generation\templates\rover.py:
+  Functions: 2 functions
+nexa\three_d\generation\templates\solar.py:
+  Functions: 4 functions
+nexa\three_d\generation\templates\spring.py:
+  Functions: 2 functions
+nexa\three_d\generation\templates\stepper.py:
+  Functions: 1 functions
+nexa\three_d\generation\templates\structures.py:
+  Classes: ['Member', 'PlanarTruss']
+  Functions: 17 functions
+nexa\three_d\generation\templates\tank.py:
+  Functions: 6 functions
+nexa\three_d\generation\templates\tower.py:
+  Classes: ['SquareTower']
+  Functions: 15 functions
+nexa\three_d\generation\templates\train.py:
+  Functions: 5 functions
+nexa\three_d\generation\templates\transmission.py:
+  Functions: 9 functions
+nexa\three_d\generation\templates\truss.py:
+  Functions: 3 functions
+nexa\three_d\generation\templates\uav.py:
+  Functions: 3 functions
+nexa\three_d\generation\templates\wind_turbine.py:
+  Functions: 2 functions
+nexa\three_d\generation\templates\__init__.py:
+  Functions: 1 functions
+nexa\three_d\geometry\dsl.py:
+  Classes: ['DslError', '_Budget']
+  Functions: 9 functions
+nexa\three_d\geometry\gltf.py:
+  Classes: ['GlbError', 'GlbPrimitive', 'GlbNode', 'GlbDocument', '_BinBuilder']
+  Functions: 12 functions
+nexa\three_d\geometry\kernel.py:
+  Classes: ['GeometryError', 'MeshData', 'Solid', 'Shape']
+  Functions: 72 functions
+nexa\three_d\geometry\materials.py:
+  Functions: 22 functions
+nexa\three_d\geometry\profiles.py:
+  Functions: 17 functions
+nexa\three_d\postprocess\mesh.py:
+  Classes: ['ImportedPart', 'ImportedModel']
+  Functions: 6 functions
+nexa\three_d\postprocess\__init__.py:
+nexa\ui\bridge.py:
+  Classes: ['CameraImageProvider', 'UiBridge']
+  Functions: 56 functions
+nexa\ui\overlay.py:
+  Classes: ['OverlayManager']
+  Functions: 16 functions
+nexa\ui\three_d_bridge.py:
+  Classes: ['PackedMesh', 'MeshStore', 'MeshGeometry', 'ThreeDBridge']
+  Functions: 53 functions
+nexa\ui\__init__.py:
+nexa\utils\config.py:
+  Classes: ['Config', 'GUID']
+  Functions: 31 functions
+nexa\utils\logging.py:
+  Classes: ['RedactingFilter']
+  Functions: 5 functions
+nexa\utils\text.py:
+  Functions: 4 functions
+nexa\utils\__init__.py:
+nexa\vision\air_mouse.py:
+  Classes: ['MouseOutput', 'MouseParams', 'MouseFrame', 'AirMouse', 'InputMouseOutput']
+  Functions: 27 functions
+nexa\vision\camera.py:
+  Classes: ['Camera']
+  Functions: 7 functions
+nexa\vision\engine.py:
+  Classes: ['GestureEngine']
+  Functions: 18 functions
+nexa\vision\gesture_features.py:
+  Classes: ['Pose', 'HandFeatures']
+  Functions: 9 functions
+nexa\vision\gesture_router.py:
+  Classes: ['GestureRouter']
+  Functions: 7 functions
+nexa\vision\gesture_state_machine.py:
+  Classes: ['OneEuro', 'Observation', 'GestureSignal', 'GestureParams', 'GestureStateMachine']
+  Functions: 15 functions
+nexa\vision\hand_tracker.py:
+  Classes: ['HandObservation', 'HandTracker']
+  Functions: 3 functions
+nexa\vision\__init__.py:
