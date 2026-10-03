@@ -13,7 +13,7 @@ Hệ trục: X trước, Y trái, Z lên; đơn vị mm.
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -31,8 +31,9 @@ class DslError(ValueError):
 
 
 class _Budget:
-    def __init__(self) -> None:
+    def __init__(self, check: Callable[[], None] | None = None) -> None:
         self.nodes = 0
+        self.check = check
 
 
 def _num(node: dict, key: str, lo: float, hi: float, default: float | None = None, required: bool = True) -> float:
@@ -142,6 +143,8 @@ def compile_profile(prof: Any) -> np.ndarray:
 
 def compile_node(node: Any, depth: int = 0, budget: _Budget | None = None) -> K.Solid:
     budget = budget or _Budget()
+    if budget.check:
+        budget.check()
     if depth > MAX_DEPTH:
         raise DslError(f"cây DSL quá sâu (> {MAX_DEPTH})")
     budget.nodes += 1

@@ -591,6 +591,15 @@ ApplicationWindow {
         }
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.border }
 
+        RowLayout {
+            visible: (win.width < 1200 || win.sideShown) && !nexa.compact
+            Layout.fillWidth: true; spacing: 8
+            GenerationProgress { Layout.fillWidth: true; compact: true; title: "MÔ HÌNH 3D"; job: nexa3d.activeJob
+                onOpenRequested: nexa3d.workspace = true }
+            GenerationProgress { Layout.fillWidth: true; compact: true; title: "CODE"; job: nexaCode.job
+                onOpenRequested: nexaCode.openPanel() }
+        }
+
         Item { id: narrowNavSlot; visible: win.width < 1200; Layout.fillWidth: true; Layout.preferredHeight: 34 }
         RowLayout {
             parent: win.width >= 1200 ? headerNavSlot : narrowNavSlot
@@ -1207,6 +1216,9 @@ ApplicationWindow {
                 Layout.fillHeight: true; Layout.preferredWidth: Math.min(290, win.width * 0.19)
                 Layout.minimumWidth: Layout.preferredWidth; Layout.maximumWidth: Layout.preferredWidth
                 timeline: nexa.timeline; appState: nexa.state; stateLabel: nexa.stateLabel; stateDetail: nexa.stateDetail; status: nexa.status; foreground: nexa.foreground
+                modelJob: nexa3d.activeJob; codeJob: nexaCode.job
+                onModels: nexa3d.workspace = true
+                onCode: nexaCode.openPanel()
             }
             ReferenceRuntimeRail {
                 objectName: "runtimeRail"

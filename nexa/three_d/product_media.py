@@ -27,8 +27,10 @@ class MediaOptions:
     fps: int = 24
 
     def validate(self):
-        if self.kind not in ("png", "mp4") or self.background not in ("light", "dark"):
+        if self.kind not in ("png", "mp4") or self.background not in ("light", "dark", "transparent"):
             raise ValueError("Định dạng hoặc nền không hợp lệ.")
+        if self.kind == "mp4" and self.background == "transparent":
+            raise ValueError("MP4 không hỗ trợ nền trong suốt; hãy chọn nền sáng hoặc tối.")
         if self.size not in (256, 512, 768, 1024) or self.seconds not in (3, 6, 10) or self.fps != 24:
             raise ValueError("Kích thước hoặc thời lượng không hợp lệ.")
         if not math.isfinite(self.yaw) or not math.isfinite(self.pitch) or not -80 <= self.pitch <= 80:
@@ -88,9 +90,15 @@ def export_media(store, project_id: str, destination: Path, options: MediaOption
                 yaw = math.radians(options.yaw + 360 * i / count if count > 1 else options.yaw)
                 pitch = math.radians(options.pitch)
                 camera = (math.sin(yaw) * math.cos(pitch), math.sin(pitch), math.cos(yaw) * math.cos(pitch))
-                frame = render(meshes, view=camera, size=options.size, background=options.background,
+                result = render(meshes, view=camera, size=options.size,
+                               background="light" if options.background == "transparent" else options.background,
                                bounds=(lo, hi), fixed_extent=extent, ssaa=1, outline=False,
-                               texture_root=root).image
+                               texture_root=root)
+                frame = result.image
+                if options.background == "transparent":
+                    # Use geometry coverage, never a color key: dark/white object pixels
+                    # must survive unchanged. ssaa=1 avoids background-matted edge pixels.
+                    frame = np.dstack((frame, result.mask))
                 check()
                 if writer is None:
                     partial.write_bytes(png_bytes(frame))

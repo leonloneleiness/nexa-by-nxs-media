@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 class ProviderError(Exception):
     """kind: missing_key | auth | quota | rate_limit | network | timeout | invalid | unsupported | failed |
-    content_policy | cancelled | not_found | server"""
+    content_policy | cancelled | not_found | server | submission_unknown"""
 
     def __init__(self, kind: str, message: str, retryable: bool = False, code: Any = None) -> None:
         super().__init__(message)

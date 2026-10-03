@@ -68,6 +68,8 @@ def route_3d(orig: str, fold_text: str, viewer_active: bool,
         if (cat != "generic" or mentions_3d) and not blocked:
             quality = "high" if re.search(r"chat luong cao|chi tiet cao|high quality|dep nhat|sieu chi tiet", u) else "standard"
             mode = "cloud" if re.search(r"\b(bang|dung|qua) (cloud|dich vu)\b|" + PROVIDER_3D, u) else "auto"
+            if re.search(r"\bcad tham so\b|\bchi (?:dung |dung bang )?cad cuc bo\b", u):
+                mode = "parametric"
             args = {"prompt": orig.strip()}
             if quality != "standard":
                 args["quality"] = quality

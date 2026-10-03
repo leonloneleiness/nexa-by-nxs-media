@@ -46,8 +46,8 @@ def handle_command(text: str, *, do_unlock=None, do_set=None, do_clear=None, do_
             (do_set or unlock.save_secret)(lines[1])
             return "OK"
         if cmd == unlock.CMD_CLEAR:
-            (do_clear or unlock.clear_secret)()
-            return "OK"
+            ok = (do_clear or unlock.clear_secret)()
+            return "OK" if ok else "ERR clear-failed"
         if cmd in (unlock.CMD_NOLOCK_ON, unlock.CMD_NOLOCK_OFF):
             fn = do_nolock or set_console_lock
             ok = fn(cmd == unlock.CMD_NOLOCK_ON)
@@ -131,7 +131,7 @@ def set_console_lock(disable: bool) -> bool:
 
 
 # ------------------------------------------------------------------ spawn injector vào Winlogon
-def spawn_on_winlogon() -> bool:
+def spawn_on_winlogon(*, session_id: int | None = None) -> bool:
     """Nhân bản token winlogon.exe của console session, chạy injector trên desktop Winlogon (SYSTEM)."""
     import win32api
     import win32con
@@ -142,7 +142,10 @@ def spawn_on_winlogon() -> bool:
     import win32ts
     import pywintypes
 
-    session_id = win32ts.WTSGetActiveConsoleSessionId()
+    active_session = win32ts.WTSGetActiveConsoleSessionId()
+    if session_id is not None and session_id != active_session:
+        return False
+    session_id = active_session
     if session_id in (0xFFFFFFFF, None):
         log.error("Không có console session hoạt động")
         return False
@@ -172,6 +175,8 @@ def spawn_on_winlogon() -> bool:
         si.lpDesktop = "Winlogon\\Winlogon"
 
         flags = win32con.CREATE_UNICODE_ENVIRONMENT | win32process.CREATE_NO_WINDOW
+        if win32ts.WTSGetActiveConsoleSessionId() != session_id:
+            return False
         hp, ht, pid, tid = win32process.CreateProcessAsUser(
             hdup, None, cmdline, None, None, False, flags, env, None, si)
         log.info("Đã spawn injector pid=%s trên desktop Winlogon", pid)
@@ -199,7 +204,6 @@ def _find_winlogon_pid(session_id: int) -> int | None:
     import win32api
     import win32con
     import win32process
-    import win32security
     try:
         import psutil  # nếu có, nhanh và gọn
         for p in psutil.process_iter(["name", "pid"]):
@@ -253,7 +257,10 @@ def _serve_pipe(stop_event) -> None:
     import win32file
     import win32security
     import pywintypes
+    import win32ts
 
+    # Fail closed before publishing a pipe, including when called outside SCM.
+    unlock.secure_secret_storage()
     sa = win32security.SECURITY_ATTRIBUTES()
     sa.SetSecurityDescriptorDacl(1, _pipe_dacl(), 0)
 
@@ -261,8 +268,9 @@ def _serve_pipe(stop_event) -> None:
         try:
             handle = win32pipe.CreateNamedPipe(
                 unlock.PIPE_NAME,
-                win32pipe.PIPE_ACCESS_DUPLEX,
-                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                win32pipe.PIPE_ACCESS_DUPLEX | 0x00080000,  # FIRST_PIPE_INSTANCE
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE |
+                win32pipe.PIPE_WAIT | 0x00000008,  # REJECT_REMOTE_CLIENTS
                 1, 4096, 4096, 0, sa)
         except pywintypes.error:
             log.exception("Không tạo được pipe")
@@ -280,13 +288,13 @@ def _serve_pipe(stop_event) -> None:
             try:
                 _hr, data = win32file.ReadFile(handle, 4096)
                 text = data.decode("utf-8", "replace")
-                first = text.replace("\r\n", "\n").split("\n", 1)[0].strip().upper()
-                log.info("Nhận lệnh: %s", first or "(rỗng)")
-                if not _client_is_console(handle):
+                session_id = win32ts.WTSGetActiveConsoleSessionId()
+                if not _client_is_console(handle, session_id=session_id):
                     reply = "ERR forbidden"
                     log.warning("Từ chối client không thuộc console session")
                 else:
-                    reply = handle_command(text, do_unlock=spawn_on_winlogon)
+                    reply = handle_command(
+                        text, do_unlock=lambda: spawn_on_winlogon(session_id=session_id))
                 log.info("Phản hồi: %s", reply)
                 win32file.WriteFile(handle, reply.encode("utf-8"))
                 win32file.FlushFileBuffers(handle)
@@ -309,13 +317,44 @@ def _pipe_dacl():
     return sd.GetSecurityDescriptorDacl()
 
 
-def _client_is_console(handle) -> bool:
-    """Chỉ chấp nhận client thuộc console session (chống tiến trình lạ ở session khác gọi mở khóa)."""
+def _client_is_console(handle, *, session_id: int | None = None) -> bool:
+    """Authenticate the connected token, not a PID that can exit/be reused.
+
+    This establishes a console user/session boundary, not NEXA executable identity.
+    Other processes running as that user remain trusted by this protocol.
+    """
     try:
-        import win32pipe
+        import win32api
+        import win32con
+        import win32security
         import win32ts
-        pid = win32pipe.GetNamedPipeClientProcessId(handle)
-        return win32ts.ProcessIdToSessionId(pid) == win32ts.WTSGetActiveConsoleSessionId()
+        session = win32ts.WTSGetActiveConsoleSessionId()
+        if session_id is not None and session_id != session:
+            return False
+        if session in (None, 0, 0xFFFFFFFF):
+            return False
+        win32security.ImpersonateNamedPipeClient(handle)
+        try:
+            token = win32security.OpenThreadToken(
+                win32api.GetCurrentThread(), win32con.TOKEN_QUERY, True)
+            try:
+                client_session = win32security.GetTokenInformation(
+                    token, win32security.TokenSessionId)
+                client_sid = win32security.GetTokenInformation(token, win32security.TokenUser)[0]
+            finally:
+                token.Close()
+        finally:
+            win32security.RevertToSelf()
+        if client_session != session:
+            return False
+        console_token = win32ts.WTSQueryUserToken(session)
+        try:
+            console_sid = win32security.GetTokenInformation(
+                console_token, win32security.TokenUser)[0]
+            return (client_sid == console_sid and
+                    session == win32ts.WTSGetActiveConsoleSessionId())
+        finally:
+            console_token.Close()
     except Exception:
         log.exception("Không xác thực được client pipe")
         return False
@@ -352,6 +391,9 @@ def _build_service_class():
             win32event.SetEvent(self.stop_event)
 
         def SvcDoRun(self):
+            # Run synchronously so migration failure prevents a running service.
+            unlock.secure_secret_storage()
+            unlock.setup_service_logs()
             servicemanager.LogMsg(servicemanager.EVENTLOG_INFORMATION_TYPE,
                                   servicemanager.PYS_SERVICE_STARTED, (self._svc_name_, ""))
             self._thread = threading.Thread(target=_serve_pipe, args=(self.stop_event,),
@@ -367,7 +409,6 @@ def service_main() -> None:
     import servicemanager
     import win32serviceutil
 
-    unlock.setup_service_logs()
     cls = _build_service_class()
     if len(sys.argv) == 1:
         # SCM khởi động: chạy dispatcher.

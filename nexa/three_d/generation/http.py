@@ -5,6 +5,9 @@ Không bao giờ ghi API key vào log/thông báo (logging đã lọc key đã �
 from __future__ import annotations
 
 import time
+import math
+from datetime import timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -14,6 +17,24 @@ from nexa.three_d.generation.base import ProviderError
 from nexa.utils.logging import get_logger, register_secret
 
 log = get_logger("3d.http")
+
+
+def retry_delay(value: str | None, attempt: int) -> float:
+    """Bounded backoff; Retry-After may be seconds or an HTTP date."""
+    fallback = min(8.0, 1.5 * 2 ** attempt)
+    if not value:
+        return fallback
+    try:
+        delay = float(value)
+    except (ValueError, TypeError):
+        try:
+            date = parsedate_to_datetime(value)
+            if date.tzinfo is None:
+                date = date.replace(tzinfo=timezone.utc)
+            delay = date.timestamp() - time.time()
+        except (ValueError, TypeError, OverflowError):
+            return fallback
+    return min(8.0, max(0.0, delay)) if math.isfinite(delay) else fallback
 
 
 class HttpClient:
@@ -35,18 +56,27 @@ class HttpClient:
     def request(self, method: str, path: str, *, json_body: Any = None, files: Any = None, params: dict | None = None,
                 retries: int = 2) -> httpx.Response:
         url = path if path.startswith("http") else f"{self.base_url}/{path.lstrip('/')}"
+        # A lost response does not mean a POST was rejected. Never replay a paid
+        # submission/upload or other mutation without provider-specific idempotency.
+        safe = method.upper() in ("GET", "HEAD", "OPTIONS")
+        retries = max(0, int(retries)) if safe else 0
         last: ProviderError | None = None
         for attempt in range(retries + 1):
             try:
                 resp = self._client.request(method, url, json=json_body, files=files, params=params, headers=self._headers())
             except httpx.TimeoutException:
+                if not safe:
+                    raise ProviderError("submission_unknown", "Chưa xác định dịch vụ đã nhận yêu cầu hay chưa. "
+                                        "NEXA không gửi lại; hãy kiểm tra tác vụ trên dịch vụ trước khi tạo lại.") from None
                 last = ProviderError("timeout", "Dịch vụ 3D phản hồi quá thời gian chờ.", retryable=True)
             except httpx.HTTPError as exc:
+                if not safe:
+                    raise ProviderError("submission_unknown", "Mất kết nối khi gửi yêu cầu. NEXA không gửi lại để "
+                                        "tránh tạo trùng; hãy kiểm tra tác vụ trên dịch vụ trước khi tạo lại.") from None
                 last = ProviderError("network", f"Không kết nối được dịch vụ 3D ({type(exc).__name__}).", retryable=True)
             else:
                 if resp.status_code in (429, 500, 502, 503, 504) and attempt < retries:
-                    wait = float(resp.headers.get("Retry-After", "0") or 0) or (1.5 * 2 ** attempt)
-                    time.sleep(min(8.0, wait))
+                    time.sleep(retry_delay(resp.headers.get("Retry-After"), attempt))
                     continue
                 return resp
             if attempt < retries:

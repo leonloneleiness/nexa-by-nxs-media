@@ -188,6 +188,8 @@ def test_service_generate_history_and_save(config, tmp_path):
     assert ok
     svc._thread.join(30)
     assert svc.job()["state"] == "done" and svc.current is not None
+    assert svc.job()["finished"] >= svc.job()["started"]
+    assert svc.job()["progress"] == 1.0
     kinds = [k for k, _ in events]
     assert kinds[0] == "code_open" and "code_result" in kinds and said
     hist = svc.history()

@@ -205,7 +205,7 @@ def build(spec: ModelSpec) -> BuiltAssembly:
     b = AssemblyBuilder(name, "cnc_router", mats)
     contacts: list[list[str]] = []
 
-    car_l, car_w, h, rail_h = float(G["car_l"]), float(G["car_w"]), float(G["h"]), float(G["rail_h"])
+    car_l, car_w, h = float(G["car_l"]), float(G["car_w"]), float(G["h"])
     car = MC.carriage(G)
     Lsp = 2 * car_l + 60.0                                           # dài tấm đế con trượt giàn
     Wsad = 2 * car_l + 50.0                                          # rộng bàn trượt X

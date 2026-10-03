@@ -77,7 +77,8 @@ class ModelBuild:
                    materials=dict(asm.materials), explosion_plan=list(asm.explosion_plan),
                    solids={bp.part.id: bp.solid for bp in asm.parts},
                    no_clash={bp.part.id: list(bp.no_clash_with) for bp in asm.parts},
-                   metadata=dict(asm.metadata), warnings=list(asm.warnings), has_assembly=len(asm.parts) > 1)
+                   metadata=dict(asm.metadata), warnings=list(asm.warnings),
+                   has_assembly=len(asm.parts) > 1 and any(bp.part.explode_distance > 0 for bp in asm.parts))
 
     def part_data(self) -> list[PartData]:
         out = []
@@ -132,12 +133,18 @@ class GenerationPipeline:
             spec = ModelSpec(category="generic", name="Mô hình theo ảnh", prompt=job.prompt,
                              params={"description": job.prompt}, reference_images=views)
         else:
-            plan = self.planner.plan(job.prompt, token=ctx.token, overrides=overrides)
+            local_only = job.mode == "parametric" or (job.mode == "auto" and self.cfg("default_mode", "auto") == "parametric")
+            planner = Planner(use_gemini=False) if local_only else self.planner
+            if local_only:
+                overrides["mode"] = "parametric"
+            plan = planner.plan(job.prompt, token=ctx.token, overrides=overrides)
             ctx.check()
             for w in plan.warnings:
                 ctx.warn(w)
             if plan.questions:
-                raise NeedsInput(plan.questions, resume=job.prompt.rstrip(" .") + ", {}")
+                suffix = " bằng CAD tham số" if local_only else " bằng cloud" if job.mode == "cloud" else ""
+                suffix += " chất lượng cao" if job.quality == "high" else ""
+                raise NeedsInput(plan.questions, resume=job.prompt.rstrip(" .") + suffix + ", {}")
             spec = plan.spec
         assert spec is not None
         if job.quality == "high":
@@ -146,12 +153,14 @@ class GenerationPipeline:
         if spec.reference_images:
             if not self.planner.gemini_ready():
                 raise JobFailed("Cần cấu hình Gemini API để tạo mô hình từ ảnh tham chiếu.", "missing_key")
-            provider = self.provider_factory()
+            provider = None if mode == "reference_cad" else self.provider_factory()
             if provider is not None and provider.available()[0] and "image_to_model" in provider.capabilities:
                 route = "cloud"
             else:
                 route, provider = "dsl", None
-                ctx.warn("Chưa có dịch vụ ảnh → 3D sẵn sàng; dùng CAD ước lượng. Chi tiết cong/phức tạp có thể không tái tạo đủ.")
+                ctx.warn("Dựng CAD từ ảnh gốc, không tách nền. Hình học được ước lượng; hoa, chữ và vật liệu có thể chưa giống ảnh."
+                         if mode == "reference_cad" else
+                         "Chưa có dịch vụ ảnh → 3D sẵn sàng; dùng CAD ước lượng. Chi tiết cong/phức tạp có thể không tái tạo đủ.")
         else:
             route, provider = self._route(spec, mode)
         how = {"parametric": "CAD tham số cục bộ", "dsl": "CAD DSL (best effort)",
@@ -179,8 +188,9 @@ class GenerationPipeline:
             if spec.reference_images:
                 refdir = pdir / "source" / "reference_images"
                 refdir.mkdir(parents=True, exist_ok=True)
-                for view, (data, _) in spec.reference_images.items():
-                    (refdir / f"{view}.jpg").write_bytes(data)
+                for view, (data, mime) in spec.reference_images.items():
+                    extension = "png" if mime == "image/png" else "jpg"
+                    (refdir / f"{view}.{extension}").write_bytes(data)
             if route == "cloud":
                 try:
                     build, report, renders = self._run_cloud(job, ctx, spec, provider, pdir)
@@ -232,6 +242,11 @@ class GenerationPipeline:
         Provider miễn phí (Hugging Face Space, free_tier) chậm và giới hạn GPU: ở chế độ auto chỉ dùng khi yêu cầu
         chất lượng cao hoặc khi chưa có Gemini; còn lại dùng mức 2 và HF là phương án dự phòng (xem run())."""
         provider = None
+        if mode == "parametric":
+            if spec.supported:
+                return "parametric", None
+            raise JobFailed("Vật thể này chưa có mẫu CAD tham số cục bộ. Chọn Tự động hoặc Cloud nếu muốn dùng dịch vụ AI.",
+                            "unsupported")
         if mode == "cloud" or (mode == "auto" and not spec.supported):
             provider = self.provider_factory()
             ok, reason = provider.available() if provider is not None else (False, "Chưa cấu hình dịch vụ 3D cloud (NEXA_3D_PROVIDER).")
@@ -287,7 +302,7 @@ class GenerationPipeline:
     def _dsl_compile(self, ctx: JobContext, spec: ModelSpec, designer: Any, data: dict, stats: dict) -> tuple[dict, Any]:
         """Biên dịch; bộ phận lỗi → Gemini sửa (tối đa dsl_repair_rounds lần). Trả (data, DslBuild có asm)."""
         from nexa.three_d.generation.parametric import compile_dsl_parts
-        res = compile_dsl_parts(spec, data["parts"], tolerant=True)
+        res = compile_dsl_parts(spec, data["parts"], tolerant=True, check=ctx.check)
         rounds = int(self.cfg("dsl_repair_rounds", 2))
         while res.errors and stats["repairs"] < rounds:
             ctx.check()
@@ -295,7 +310,7 @@ class GenerationPipeline:
             stats["repaired_parts"] += len(res.errors)
             ctx.progress(ctx.job.progress, f"Gemini đang sửa {len(res.errors)} bộ phận biên dịch lỗi")
             data = designer.repair(spec, data, res.errors, ctx.token)
-            res = compile_dsl_parts(spec, data["parts"], tolerant=True)
+            res = compile_dsl_parts(spec, data["parts"], tolerant=True, check=ctx.check)
         if res.asm is None:
             detail = "; ".join(f"{k}: {v}" for k, v in list(res.errors.items())[:3])
             raise JobFailed(f"Không dựng được bộ phận nào từ mô tả CAD của Gemini ({detail[:240]}).", "dsl_failed")
@@ -496,7 +511,8 @@ class GenerationPipeline:
             ctx.progress(p0 + (p1 - p0) * min(1.0, task.progress / 100.0), f"{label} ({task.progress:.0f}%){extra}")
             if task.done:
                 if task.status != "success":
-                    raise ProviderError("failed", f"{provider.name}: {task.error or task.raw_status}")
+                    kind = "reference_mask" if task.raw_status == "reference_mask" else "failed"
+                    raise ProviderError(kind, task.error if kind == "reference_mask" else f"{provider.name}: {task.error or task.raw_status}")
                 return task
             if ctx.token.wait(interval):
                 provider.cancel_job(task)
@@ -559,7 +575,7 @@ class GenerationPipeline:
                                                          if spec.params.get(k)), None) or DEFAULT_SIZE_MM.get(spec.category, 300.0)
         told = bool(set(spec.explicit or {}) & {"approx_size_mm", "length_mm", "height_mm", "wheelbase_mm"})
         kw = dict(limits=Limits.from_config(self.config), max_triangles=int(self.cfg("max_triangles", 2_000_000)),
-                  clean=True, split=not spec.supported)
+                  clean=True, split=not spec.supported and not spec.reference_images)
         imp = None
         if real_size and not told:
             imp = import_glb(src, pdir, target_size_mm=None, **kw)
@@ -625,7 +641,7 @@ class GenerationPipeline:
             try:
                 build, task = self._cloud_candidate(ctx, spec, provider, pdir, idx, prompt, negative, views, p0, p1)
             except ProviderError as exc:
-                if exc.kind in ("missing_key", "auth", "quota", "content_policy") or best is None and idx == attempts - 1:
+                if exc.kind in ("reference_mask", "missing_key", "auth", "quota", "content_policy") or best is None and idx == attempts - 1:
                     raise JobFailed(exc.message, exc.kind) from exc
                 ctx.warn(f"Ứng viên {idx + 1} lỗi: {exc.message[:100]}")
                 continue
@@ -640,7 +656,7 @@ class GenerationPipeline:
         if best is None:
             raise JobFailed(f"{provider.name} không tạo được ứng viên nào.", "provider_failed")
         build, report, renders = best
-        if bool(self.cfg("cloud_segmentation", True)) and "segment_model" in provider.capabilities and \
+        if not spec.reference_images and bool(self.cfg("cloud_segmentation", True)) and "segment_model" in provider.capabilities and \
                 build.provider_task is not None and not build.has_assembly and                 (spec.supported or bool(self.cfg("cloud_segment_free_objects", False))):
             ctx.stage(JobState.SEGMENTING, 0.8, "Đang tách bộ phận (mesh segmentation)")
             try:
@@ -664,6 +680,14 @@ class GenerationPipeline:
     # ================================================================ đánh giá
     def _evaluate(self, ctx: JobContext, spec: ModelSpec, build: ModelBuild, pdir: Path, mode: str,
                   tag: str = "") -> tuple[QualityReport, dict]:
+        if spec.reference_images:
+            # Photo reconstruction is a visual asset, not a mechanical assembly.
+            build.has_assembly = False
+            build.explosion_plan = []
+            build.metadata["assembly_confidence"] = 0.0
+            build.metadata["explosion"] = "none"
+            for part in build.parts:
+                part.explode_distance = 0.0
         fixed = mode == "parametric"          # dsl/cloud có nhiều vòng: giữ tiến độ hiện tại, không lùi
         ctx.stage(JobState.TEXTURING, 0.4 if fixed else ctx.job.progress, "Đang tạo vật liệu PBR")
         needed = set()
@@ -695,7 +719,8 @@ class GenerationPipeline:
         for v, rr in renders.items():
             (rdir / f"{v}{('_' + tag) if tag else ''}.png").write_bytes(R.png_bytes(rr.image))
         ai = None
-        if spec.reference_images or bool(self.cfg("ai_review", True)):
+        local_only = ctx.job.mode == "parametric" or spec.mode == "parametric"
+        if spec.reference_images or (not local_only and bool(self.cfg("ai_review", True))):
             ctx.stage(JobState.REVIEWING, 0.75 if fixed else ctx.job.progress, "Gemini đang chấm ảnh 6 góc")
             ai = review_renders(sheet_jpg, spec, canonical_checklist(spec), self.gemini, ctx.token,
                                 [p.name_vi for p in build.parts])
@@ -763,8 +788,8 @@ class GenerationPipeline:
             warnings.append(SAFETY_WARNING)
         if not spec.supported:
             warnings.append("Vật thể ngoài nhóm hỗ trợ: kết quả best effort, mục tiêu 90% không áp dụng.")
-        if not build.has_assembly:
-            warnings.append("Mô hình chưa có cấu trúc assembly (một khối) — xem được nhưng không có exploded view chuẩn.")
+        if not build.has_assembly and not spec.reference_images:
+            warnings.append("Mô hình chưa có cấu trúc assembly để tháo lắp — xem/chọn bộ phận được nhưng chưa có chế độ tách rời.")
         elif build.metadata.get("explosion") == "heuristic_radial":
             warnings.append("Hướng tách ước lượng từ segmentation, chưa theo logic lắp ráp thật.")
         meta = dict(report.metadata)

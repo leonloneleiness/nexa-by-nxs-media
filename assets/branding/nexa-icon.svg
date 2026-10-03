@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1=".15" y1="0" x2=".85" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#123C61"/><stop offset="1" stop-color="#061A36"/>
+    </linearGradient>
+    <linearGradient id="teal" x2=".6" y2="1">
+      <stop stop-color="#49E4D6"/><stop offset="1" stop-color="#12B9BA"/>
+    </linearGradient>
+    <linearGradient id="violet" x2=".8" y2="1">
+      <stop stop-color="#BA89F5"/><stop offset="1" stop-color="#8B50D8"/>
+    </linearGradient>
+    <linearGradient id="orange" x2=".8" y2="1">
+      <stop stop-color="#FFA04A"/><stop offset="1" stop-color="#FF7529"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="72" width="896" height="896" rx="208" fill="#041428" opacity=".28"/>
+  <rect x="64" y="56" width="896" height="896" rx="208" fill="url(#tile)"/>
+  <rect x="66" y="58" width="892" height="892" rx="206" fill="none" stroke="#83E1E0" stroke-opacity=".16" stroke-width="4"/>
+  <!-- Three connected components form the N: NXS's puzzle identity, simplified for desktop sizes. -->
+  <g transform="translate(0 12)" fill="#031427" opacity=".45">
+    <rect x="230" y="246" width="142" height="528" rx="38"/>
+    <rect x="652" y="246" width="142" height="528" rx="38"/>
+    <path d="M280 246H369L744 674V736Q744 774 706 774H655L280 346Z"/>
+  </g>
+  <rect x="230" y="246" width="142" height="528" rx="38" fill="url(#teal)"/>
+  <rect x="652" y="246" width="142" height="528" rx="38" fill="url(#violet)"/>
+  <path d="M280 246H352Q367 246 378 259L744 674V736Q744 774 706 774H672Q657 774 646 761L280 346Z" fill="url(#orange)"/>
+  <!-- Teal rounded connector recalls a puzzle tab, without fine detail. -->
+  <path d="M230 284Q230 246 268 246H334Q372 246 372 284V394H388A30 30 0 0 1 388 454H372V736Q372 774 334 774H268Q230 774 230 736Z" fill="url(#teal)"/>
+  <path d="M254 304V284Q254 270 268 270H325" fill="none" stroke="#C8FFF4" stroke-opacity=".48" stroke-width="8" stroke-linecap="round"/>
+  <path d="M679 284Q679 270 693 270H750" fill="none" stroke="#E9D7FF" stroke-opacity=".45" stroke-width="8" stroke-linecap="round"/>
+</svg>

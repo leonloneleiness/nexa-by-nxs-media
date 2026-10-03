@@ -32,11 +32,24 @@ Dialog {
             columns: 2
             enabled: !dialog.status.busy
             Label { text: "Định dạng" }
-            ComboBox { id: format; model: ["Ảnh PNG", "Video MP4 · 360°"] ; Layout.fillWidth: true }
+            ComboBox {
+                id: format
+                model: ["Ảnh PNG", "Video MP4 · 360°"]
+                Layout.fillWidth: true
+                onCurrentIndexChanged: {
+                    if (currentIndex === 1 && mediaBackground.currentIndex === 2)
+                        mediaBackground.currentIndex = 0
+                }
+            }
             Label { text: "Kích thước vuông" }
             ComboBox { id: resolution; model: ["512 × 512", "768 × 768", "1024 × 1024"]; currentIndex: 1; Layout.fillWidth: true }
             Label { text: "Nền" }
-            ComboBox { id: background; model: ["Studio sáng", "Studio tối"]; Layout.fillWidth: true }
+            ComboBox {
+                id: mediaBackground
+                model: format.currentIndex === 0 ? ["Studio sáng", "Studio tối", "Trong suốt (PNG)"]
+                                                 : ["Studio sáng", "Studio tối"]
+                Layout.fillWidth: true
+            }
             Label { text: "Góc nhìn" }
             ComboBox { id: angle; model: ["Góc 3/4", "Chính diện", "Góc bên"]; Layout.fillWidth: true }
             Label { text: "Thời lượng"; visible: format.currentIndex === 1 }
@@ -52,7 +65,7 @@ Dialog {
                 text: format.currentIndex === 0 ? "Xuất ảnh" : "Xuất video xoay"
                 enabled: !dialog.status.busy && nexa3d.viewerOpen && !nexa3d.loading
                 onClicked: nexa3d.exportProductMedia(format.currentIndex === 0 ? "png" : "mp4",
-                    [512, 768, 1024][resolution.currentIndex], background.currentIndex === 0 ? "light" : "dark",
+                    [512, 768, 1024][resolution.currentIndex], ["light", "dark", "transparent"][Math.max(0, mediaBackground.currentIndex)],
                     [3, 6, 10][duration.currentIndex], [35, 0, 90][angle.currentIndex], angle.currentIndex === 0 ? 20 : 0)
             }
             Button { text: "Hủy xuất"; visible: !!dialog.status.busy; onClicked: nexa3d.cancelProductMedia() }

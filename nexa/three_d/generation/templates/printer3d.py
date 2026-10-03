@@ -648,7 +648,6 @@ def _corexy(b: AssemblyBuilder, Bx: float, By: float, Bz: float) -> dict:
         _motor_unit(b, key, key.upper(), (mc[0], mc[1], zp + 5.0), (0, 0, -1), zl, contacts, parent="corner_plates")
 
     # ---------- trục Z + bàn ----------
-    to_z = frame_map((0, 0, -1), (-1, 0, 0), (0, 1, 0), (0, 0, 0))    # ray dọc Z, mặt ray hướng −Y (cột trái), đảo cho cột phải
     zr0, zr1 = z0 + 30.0, zt - 25.0
     zcz = za + 10.0
     tag = {1: "l", -1: "r"}

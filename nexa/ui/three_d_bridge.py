@@ -250,8 +250,8 @@ class ThreeDBridge(QObject):
         elif kind == "3d_job":
             jobs = [j for j in v["jobs"] if j.get("id") != data.get("id")]
             v["jobs"] = ([data] + jobs)[:12]
-            v["activeJob"] = data if not data.get("terminal") else (v["activeJob"] if v["activeJob"].get("id") != data.get("id")
-                                                                     else data)
+            pending = [j for j in v["jobs"] if not j.get("terminal")]
+            v["activeJob"] = min(pending, key=lambda j: (j.get("state") == "queued", j.get("created", 0))) if pending else data
             if data.get("terminal"):
                 v["models"] = self._model_list()
             self.jobsChanged.emit()
@@ -461,21 +461,20 @@ class ThreeDBridge(QObject):
 
     @Slot(str, str, str)
     def generate(self, prompt: str, mode: str, quality: str) -> None:
-        from nexa.core.events import Source
         text = prompt.strip()
         if not text:
             return
-        low = text.lower()
-        if "mô hình" not in low and "3d" not in low:
-            text = "Tạo mô hình 3D " + (text[4:].strip() if low.startswith("tạo ") else text)
-        elif not low.startswith(("tạo", "dựng", "thiết kế", "vẽ")):
-            text = "Tạo " + text
-        self.controller.submit_text(text if mode == "auto" and quality == "standard" else
-                                    text + (" bằng cloud" if mode == "cloud" else "") +
-                                    (" chất lượng cao" if quality == "high" else ""), Source.KEYBOARD)
+        try:
+            self.svc.submit(text, mode=mode, quality=quality, source="keyboard")
+        except (ValueError, RuntimeError) as exc:
+            self.toast.emit(str(exc), True)
 
     @Slot(str, str, "QVariantMap")
-    def generateFromReferences(self, prompt: str, quality: str, references: dict) -> None:
+    @Slot(str, str, "QVariantMap", str)
+    def generateFromReferences(self, prompt: str, quality: str, references: dict, method: str = "auto") -> None:
+        if method not in ("auto", "cad"):
+            self.toast.emit("Cách dựng từ ảnh không hợp lệ.", True)
+            return
         if not self.svc.enabled or self.svc.locked:
             self.toast.emit("NEXA đang khóa hoặc tính năng 3D chưa bật.", True)
             return
@@ -489,8 +488,11 @@ class ThreeDBridge(QObject):
         if not paths:
             self.toast.emit("Hãy chọn ít nhất một ảnh tham chiếu.", True)
             return
-        self.svc.submit(prompt.strip() or "Tạo mô hình giống vật thể trong ảnh tham chiếu",
-                        quality=quality, reference_images=paths)
+        try:
+            self.svc.submit(prompt.strip() or "Tạo mô hình giống vật thể trong ảnh tham chiếu",
+                            mode="reference_cad" if method == "cad" else "auto", quality=quality, reference_images=paths)
+        except (ValueError, RuntimeError) as exc:
+            self.toast.emit(str(exc), True)
 
     @Slot(str)
     def cancelJob(self, job_id: str) -> None:

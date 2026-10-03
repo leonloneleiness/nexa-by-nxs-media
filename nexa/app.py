@@ -6,7 +6,7 @@ import os
 import sys
 
 from nexa import DISPLAY_NAME, __version__
-from nexa.utils.config import LOG_DIR, QML_DIR, Config, ensure_user_settings
+from nexa.utils.config import ASSETS_DIR, LOG_DIR, QML_DIR, Config, ensure_user_settings
 from nexa.utils.logging import setup_logging
 
 MUTEX_NAME = "Local\\NEXA_by_NXS_MEDIA_single_instance"
@@ -36,7 +36,7 @@ def run(argv: list[str]) -> int:
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     from PySide6.QtCore import QUrl
-    from PySide6.QtGui import QFont, QGuiApplication
+    from PySide6.QtGui import QFont, QGuiApplication, QIcon
     from PySide6.QtQml import QQmlApplicationEngine
 
     web_preview = False
@@ -50,6 +50,7 @@ def run(argv: list[str]) -> int:
     app.setApplicationName("NEXA")
     app.setApplicationDisplayName(DISPLAY_NAME)
     app.setOrganizationName("NXS MEDIA")
+    app.setWindowIcon(QIcon(str(ASSETS_DIR / "branding" / "nexa-icon.ico")))
     app.setFont(QFont("Segoe UI", 10))
 
     config = Config()

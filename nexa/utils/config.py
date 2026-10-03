@@ -12,6 +12,7 @@ import copy
 import os
 import sys
 import threading
+import weakref
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +172,7 @@ DEFAULTS: dict[str, Any] = {
         "provider": "gemini",
         "model": "",                  # rỗng = lấy GEMINI_MODEL từ môi trường
         "max_history_turns": 12,
+        "persist_history": False,
         "max_output_tokens": 1024,
         "temperature": 0.6,
         "max_calls_per_session": 300,
@@ -368,13 +370,11 @@ DEFAULTS: dict[str, Any] = {
             "name": "Bắt đầu làm việc",
             "phrases": ["bắt đầu làm việc", "vào việc", "bắt đầu ngày làm việc", "chế độ làm việc"],
             "steps": [
-                {"label": "Claude", "app": "Claude", "aumid": "Claude_pzs8sxrjxfjjc!Claude", "process": "claude.exe",
-                 "monitor": 1},
                 {"label": "Zalo", "app": "Zalo", "process": "zalo.exe", "title": "Zalo", "monitor": 1},
-                {"label": "YouTube", "url": "https://www.youtube.com", "title": "YouTube", "monitor": 2},
+                {"label": "Facebook", "url": "https://www.facebook.com", "title": "Facebook", "monitor": 2},
+                {"label": "Gmail", "url": "https://mail.google.com", "title": "Gmail", "monitor": 2},
                 {"label": "ChatGPT", "url": "https://chatgpt.com", "title": "ChatGPT", "monitor": 2},
-                {"label": "VS Code", "app": "Visual Studio Code", "process": "code.exe", "monitor": 1},
-                {"label": "Tin nhắn Zalo", "action": "check_zalo"},
+                {"label": "File Explorer", "app": "File Explorer", "process": "explorer.exe", "monitor": 1},
             ],
         },
     },
@@ -546,6 +546,7 @@ class Config:
     def __init__(self, settings_path: Path | None = None, gestures_path: Path | None = None,
                  load_env: bool = True):
         self._lock = threading.RLock()
+        self._history_listeners: list[weakref.WeakMethod] = []
         self.settings_path = settings_path or (CONFIG_DIR / "settings.yaml")
         self.gestures_path = gestures_path or (CONFIG_DIR / "gestures.yaml")
         if load_env:
@@ -560,6 +561,35 @@ class Config:
         self.gestures["timing"].pop("rearm_ms", None)
         self.load_error: str | None = None
         self.config_warnings: list[str] = validate_three_d(self)
+        self.config_warnings.extend(self._validate_history())
+
+    def _validate_history(self) -> list[str]:
+        warnings = []
+        with self._lock:
+            ai = self.data.get("ai")
+            if not isinstance(ai, dict):
+                self.data["ai"] = ai = copy.deepcopy(DEFAULTS["ai"])
+                warnings.append("ai không hợp lệ — dùng mặc định.")
+            if type(ai.get("persist_history")) is not bool:
+                ai["persist_history"] = False
+                warnings.append("ai.persist_history phải là boolean — tắt lưu hội thoại.")
+            limit = ai.get("max_history_turns")
+            if type(limit) is not int or not 1 <= limit <= 50:
+                ai["max_history_turns"] = 12
+                warnings.append("ai.max_history_turns phải là số nguyên từ 1 đến 50 — dùng 12.")
+        return warnings
+
+    def watch_history_settings(self, callback: Any) -> None:
+        """Provider listeners are weak and called outside the config lock."""
+        with self._lock:
+            self._history_listeners.append(weakref.WeakMethod(callback))
+
+    def _notify_history_settings(self) -> None:
+        with self._lock:
+            callbacks = [ref() for ref in self._history_listeners if ref() is not None]
+            self._history_listeners = [ref for ref in self._history_listeners if ref() is not None]
+        for callback in callbacks:
+            callback()
 
     # ----- truy cập -----
     def get(self, dotted: str, default: Any = None) -> Any:
@@ -578,6 +608,10 @@ class Config:
             for part in parts[:-1]:
                 node = node.setdefault(part, {})
             node[parts[-1]] = value
+        if dotted in ("ai", "ai.persist_history", "ai.max_history_turns"):
+            self.config_warnings = [w for w in self.config_warnings if not w.startswith("ai")]
+            self.config_warnings.extend(self._validate_history())
+            self._notify_history_settings()
 
     def gesture(self, dotted: str, default: Any = None) -> Any:
         with self._lock:
@@ -600,7 +634,12 @@ class Config:
         with self._lock:
             self.data = deep_merge(self.data, patch)
         if "three_d" in (patch or {}):
-            self.config_warnings = validate_three_d(self)
+            self.config_warnings = [w for w in self.config_warnings if not w.startswith("three_d.")]
+            self.config_warnings.extend(validate_three_d(self))
+        if "ai" in (patch or {}):
+            self.config_warnings = [w for w in self.config_warnings if not w.startswith("ai")]
+            self.config_warnings.extend(self._validate_history())
+            self._notify_history_settings()
 
     def update_gestures(self, patch: dict) -> None:
         with self._lock:

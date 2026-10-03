@@ -128,6 +128,22 @@ def test_reference_bridge_passes_labelled_local_files_and_honors_lock(app, ctrl,
         assert len(calls) == 1
     finally:
         ctrl.three_d.locked = False
+    bridge.generateFromReferences("Giữ khoảng gãy", "high", refs, "cad")
+    assert len(calls) == 2 and calls[-1][1]["mode"] == "reference_cad"
+    assert calls[-1][0][0] == "Giữ khoảng gãy"
+
+
+def test_active_job_tracks_running_work_before_queue_and_retains_completion(app, ctrl, monkeypatch):
+    from nexa.ui.three_d_bridge import ThreeDBridge
+    bridge = ThreeDBridge(ctrl)
+    monkeypatch.setattr(bridge, "_model_list", lambda: [])
+    bridge._handle("3d_job", {"id": "one", "state": "planning", "created": 1, "terminal": False})
+    bridge._handle("3d_job", {"id": "two", "state": "queued", "created": 2, "terminal": False})
+    assert bridge.activeJob["id"] == "one"
+    bridge._handle("3d_job", {"id": "one", "state": "ready", "created": 1, "terminal": True})
+    assert bridge.activeJob["id"] == "two"
+    bridge._handle("3d_job", {"id": "two", "state": "failed", "created": 2, "terminal": True})
+    assert bridge.activeJob["id"] == "two" and bridge.activeJob["terminal"]
 
 
 def test_build_records_bridge_roundtrip_and_project_guard(app, ctrl, tmp_path, monkeypatch):

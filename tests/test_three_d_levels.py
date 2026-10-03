@@ -341,14 +341,23 @@ class _Job:
         self.cancelled = True
 
 
+TRELLIS_CONFIG = {"components": [{"id": 5, "props": {"label": "Single Image"}},
+                                  {"id": 7, "props": {"label": "Multiple Images"}}],
+                  "dependencies": [{"api_name": "single_mode", "inputs": [], "targets": [[5, "select"]]},
+                                   {"api_name": "multi_mode", "inputs": [], "targets": [[7, "select"]]}]}
+
+
 def _hf(config, tmp_path, behavior, gemini=None):
     from nexa.three_d.generation.hf_provider import HFSpaceProvider
     calls = []
 
     def factory(space, workdir):
         class C:
+            config = TRELLIS_CONFIG
             def submit(self, api_name, **kw):
                 calls.append((space, api_name, kw))
+                if api_name == "/preprocess_image" and (space, api_name) not in behavior:
+                    return _Job(result=kw["image"])
                 b = behavior.get((space, api_name))
                 return b() if callable(b) else _Job(result=b)
         return C()
@@ -384,10 +393,11 @@ def test_hf_text_to_3d_falls_through_quota_to_next_space(config, tmp_path):
     t = _poll(prov, prov.create_from_text("a ceramic vase"))
     assert t.status == "success", t.error
     assert [c[:2] for c in calls] == [("black-forest-labs/FLUX.1-schnell", "/infer"), ("trellis-community/TRELLIS", "/start_session"),
+                                      ("trellis-community/TRELLIS", "/preprocess_image"), ("trellis-community/TRELLIS", "/single_mode"),
                                       ("trellis-community/TRELLIS", "/generate_and_extract_glb"), ("tencent/Hunyuan3D-2", "/shape_generation")]
     flux_kw = calls[0][2]
     assert "a ceramic vase" in flux_kw["prompt"] and flux_kw["num_inference_steps"] == 4 and "white background" in flux_kw["prompt"]
-    assert calls[3][2]["caption"] is None and calls[3][2]["check_box_rembg"] is True
+    assert calls[-1][2]["caption"] is None and calls[-1][2]["check_box_rembg"] is True
     dest = prov.download_result(t, tmp_path / "out" / "c.glb", 50_000_000)
     assert dest.read_bytes() == glb.read_bytes()
     with pytest.raises(ProviderError) as e:

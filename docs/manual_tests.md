@@ -1,5 +1,8 @@
 # Kiểm tra thủ công NEXA trên máy thật
 
+Xem [bản cập nhật sau rà soát 03/10/2026](update_2026-10-03.md) cho kết quả kiểm thử, sửa bảo mật và bản EXE mới nhất.
+Các kết quả tháng 09/2026 bên dưới là lịch sử kiểm chứng tại thời điểm đó, không phải tổng số test hiện tại.
+
 Chuẩn bị: đã chạy `setup_windows.bat`; `scripts\diagnose.py` không báo lỗi nghiêm trọng; (cho bước 13–15) đã đặt
 `GEMINI_API_KEY` mới trong `.env`; (cho bước 16–19, 24) đã cắm hai màn hình ở chế độ *Extend*; (cho bước 20–22) đã cài
 NEXA Bridge.

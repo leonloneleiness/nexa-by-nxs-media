@@ -67,6 +67,7 @@ ai:
   provider: gemini
   model: ''
   max_history_turns: 12
+  persist_history: false  # Opt-in local text history. Disabling deletes the file; disk failures are logged.
   max_output_tokens: 1024
   temperature: 0.6
   max_calls_per_session: 300
@@ -215,12 +216,11 @@ routines:
     name: Bắt đầu làm việc
     phrases: [bắt đầu làm việc, vào việc, bắt đầu ngày làm việc, chế độ làm việc]
     steps:
-      - {label: Claude, app: Claude, aumid: "Claude_pzs8sxrjxfjjc!Claude", process: claude.exe, monitor: 1}
       - {label: Zalo, app: Zalo, process: zalo.exe, title: Zalo, monitor: 1}
-      - {label: YouTube, url: "https://www.youtube.com", title: YouTube, monitor: 2}
+      - {label: Facebook, url: "https://www.facebook.com", title: Facebook, monitor: 2}
+      - {label: Gmail, url: "https://mail.google.com", title: Gmail, monitor: 2}
       - {label: ChatGPT, url: "https://chatgpt.com", title: ChatGPT, monitor: 2}
-      - {label: VS Code, app: Visual Studio Code, process: code.exe, monitor: 1}
-      - {label: Tin nhắn Zalo, action: check_zalo}
+      - {label: File Explorer, app: File Explorer, process: explorer.exe, monitor: 1}
 # Nhận biết anh qua webcam (chạy cục bộ, cần camera cử chỉ đang bật; không lưu ảnh)
 attention:
   presence_enabled: false      # rời máy ~away_after_s giây → dừng video + khóa Windows; quay lại → phát tiếp

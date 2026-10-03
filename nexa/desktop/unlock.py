@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from nexa.utils.logging import get_logger
@@ -67,31 +68,127 @@ def decrypt_secret(blob: bytes) -> str:
     return data.decode("utf-8")
 
 
+SECRET_SDDL = "O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+
+
+def _secret_security():
+    import win32security
+    sd = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(
+        SECRET_SDDL, win32security.SDDL_REVISION_1)
+    sa = win32security.SECURITY_ATTRIBUTES()
+    sa.SECURITY_DESCRIPTOR = sd
+    return sd, sa
+
+
+@contextmanager
+def _secure_handle(path: Path, *, directory=False, create=False):
+    """Open without following reparse points, then secure before any secret I/O.
+
+    Secret files reject concurrent readers. Directory handles share read/write
+    so children can be atomically replaced, but deny deletion to pin the parent.
+    Never fall back to inherited ACLs or portable chmod on Windows.
+    """
+    import win32file
+    import win32security
+    sd, sa = _secret_security()
+    h = win32file.CreateFile(
+        str(path), 0xC00E0000, 3 if directory else 0, sa, 1 if create else 3,
+        0x00200000 | (0x02000000 if directory else 0), None)
+    try:
+        info = win32file.GetFileInformationByHandle(h)
+        if info[0] & 0x400 or bool(info[0] & 0x10) != directory:
+            raise OSError("Unsafe unlock storage object")
+        if not directory and info[7] != 1:
+            raise OSError("Hard-linked unlock storage is forbidden")
+        win32security.SetSecurityInfo(
+            h, win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION |
+            win32security.DACL_SECURITY_INFORMATION |
+            win32security.PROTECTED_DACL_SECURITY_INFORMATION,
+            sd.GetSecurityDescriptorOwner(), None, sd.GetSecurityDescriptorDacl(), None)
+        yield h
+    finally:
+        win32file.CloseHandle(h)
+
+
+@contextmanager
+def _secure_store():
+    import win32file
+    path = secret_path().absolute()
+    # Do not traverse junctions/symlinks in the privileged storage path.
+    for ancestor in reversed(path.parent.parents):
+        if ancestor.lstat().st_file_attributes & 0x400:
+            raise OSError("Reparse point in unlock storage path")
+    _sd, sa = _secret_security()
+    try:
+        win32file.CreateDirectory(str(path.parent), sa)
+    except Exception as exc:  # pywintypes.error is not an OSError subclass
+        if getattr(exc, "winerror", None) != 183:
+            raise
+    with _secure_handle(path.parent, directory=True):
+        yield path
+
+
+def _secure_existing(path: Path) -> bool:
+    try:
+        with _secure_handle(path):
+            pass
+        return True
+    except Exception as exc:
+        if getattr(exc, "winerror", None) == 2:
+            return False
+        raise
+
+
+def secure_secret_storage() -> None:
+    """Privileged startup migration; repair legacy files without reading them."""
+    with _secure_store() as path:
+        _secure_existing(path)
+        tmp = path.with_suffix(".tmp")
+        if _secure_existing(tmp):
+            tmp.unlink()
+
+
 def save_secret(password: str) -> None:
-    path = secret_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_bytes(encrypt_secret(password))
-    os.replace(tmp, path)
+    import win32file
+    with _secure_store() as path:
+        _secure_existing(path)
+        tmp = path.with_suffix(".tmp")
+        if _secure_existing(tmp):
+            tmp.unlink()
+        try:
+            with _secure_handle(tmp, create=True) as handle:
+                win32file.WriteFile(handle, encrypt_secret(password))
+                win32file.FlushFileBuffers(handle)
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
     log.info("Đã lưu mã mở khóa (mã hóa DPAPI) tại %s", path)
 
 
 def load_secret() -> str | None:
-    path = secret_path()
-    if not path.exists():
-        return None
     try:
-        return decrypt_secret(path.read_bytes())
-    except Exception:
+        import win32file
+        with _secure_store() as path:
+            with _secure_handle(path) as handle:
+                size = win32file.GetFileSize(handle)
+                if size > 65536:
+                    raise ValueError("Oversized unlock secret")
+                _status, blob = win32file.ReadFile(handle, size)
+                return decrypt_secret(blob)
+    except Exception as exc:
+        if isinstance(exc, FileNotFoundError) or getattr(exc, "winerror", None) == 2:
+            return None
         log.exception("Không giải mã được mã mở khóa")
         return None
 
 
 def clear_secret() -> bool:
-    path = secret_path()
     try:
-        if path.exists():
-            path.unlink()
+        with _secure_store() as path:
+            for candidate in (path, path.with_suffix(".tmp")):
+                if _secure_existing(candidate):
+                    candidate.unlink()
         return True
     except Exception:
         log.exception("Không xóa được mã mở khóa")
@@ -227,9 +324,8 @@ def set_password(password: str) -> bool:
 
 
 def clear_password() -> bool:
-    # Xóa cả bản mã hóa (qua dịch vụ nếu chạy) lẫn file, để chắc chắn.
-    _pipe_request([CMD_CLEAR])
-    return clear_secret()
+    # The ordinary client cannot inspect/delete the protected service files.
+    return _pipe_request([CMD_CLEAR]) == "OK"
 
 
 # ------------------------------------------------------------------ cài / gỡ dịch vụ (cần admin)

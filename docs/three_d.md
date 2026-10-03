@@ -16,6 +16,12 @@ Nếu dịch vụ đã chọn gặp lỗi, NEXA báo lỗi thay vì âm thầm c
 Mọi lần tạo lại đều dùng ảnh gốc, không dùng mẫu CAD hoặc cache chỉ dựa trên văn bản. Đây là dựng hình **best effort**,
 không phải quét 3D chính xác; phần khuất và kích thước không được cung cấp sẽ được ước lượng.
 Lựa chọn chế độ CAD/Cloud chỉ áp dụng khi không đính kèm ảnh.
+Khi đính kèm ảnh, chọn **Ảnh → 3D** để dùng dịch vụ dựng từ ảnh hoặc **CAD từ ảnh gốc** để Gemini
+thiết kế hình học trực tiếp từ các ảnh, không gọi tách nền. Cách CAD vẫn là ước lượng, khó giữ đủ hoa,
+chữ và vật liệu. Nếu tách nền mất sa bàn, thông báo có nút **Thử CAD từ ảnh gốc** dùng bộ ảnh và mô tả
+đang chọn. NEXA không tự đổi phương pháp; cả hai cách đều phải qua kiểm tra độ giống.
+Mô hình từ ảnh ưu tiên chất lượng thị giác, không yêu cầu tách rời: không gọi segmentation, không yêu cầu
+explosion plan và không bật thao tác tháo lắp. Kiểm tra lưới, vật liệu, manifest và độ giống ảnh vẫn giữ nguyên.
 
 Gemini chấm riêng từng góc: hình dáng tổng thể cần ≥8/10, mỗi góc ≥7,5/10, màu/vật liệu ≥7/10 và không còn
 lỗi lớn. Thiếu đánh giá hoặc chưa giống ảnh sẽ báo **chưa đạt**; có thể mở bản này để xem nhưng không tự mở như
@@ -23,8 +29,20 @@ kết quả hoàn tất. Điểm này là đánh giá AI, không phải phép đ
 Tripo/Meshy hiện nhận các góc trước/sau/trái/phải; ảnh trên/dưới vẫn dùng để đối chiếu và có thông báo giới hạn.
 Bộ gọi TRELLIS nhận ảnh đa góc; không chuyển đa góc sang bộ gọi Hunyuan một ảnh và bỏ các ảnh còn lại.
 
+TRELLIS được gọi theo đúng phiên giao diện: `/preprocess_image` cho từng ảnh → chọn tab Single/Multiple Images
+qua cấu hình endpoint của phiên → dựng GLB. Gallery đa góc bao gồm cả ảnh chính. Lỗi tách nền/chuyển chế độ
+sẽ dừng tác vụ, không tiếp tục dựng từ ảnh phòng chưa xử lý. Chất lượng cao dùng 24 bước lấy mẫu và texture
+2048 px; mặc định 12 bước và 1024 px. Tách nền tự động vẫn có thể nhầm ở sa bàn nhiều thanh mảnh.
+Đối chiếu phải kiểm tra riêng hậu cảnh dựng thừa, cấu trúc/khoảng gãy có chủ đích và chữ nhận diện trên biển;
+các lỗi này không được bỏ qua chỉ vì điểm tổng cao. Ảnh cận cảnh không nên gán là ảnh toàn cảnh của một mặt.
+Gemini còn so sánh từng ảnh trước/sau tách nền trước khi gọi dựng hình. Nếu chỉ còn biển tên hoặc lá cờ,
+thiếu kết quả kiểm tra, hoặc còn hậu cảnh thì tác vụ dừng; không coi tách nền thành công là đã giữ đúng vật thể.
+
+Nguồn giao thức: [mã ứng dụng TRELLIS](https://huggingface.co/spaces/trellis-community/TRELLIS/blob/main/app.py).
+
 Hỗ trợ PNG/JPEG/WebP, tối đa 20 MB và 24 triệu điểm ảnh mỗi ảnh. NEXA tự xoay theo EXIF,
 thu nhỏ tối đa 1536 px và lưu bản ảnh đã chuẩn hóa tại `source/reference_images/<góc>.jpg` trong dự án.
+Ảnh có nền trong suốt được giữ alpha và lưu `.png`, để không làm mất mặt nạ tách nền người dùng đã chuẩn bị.
 Các ảnh đã chọn được giữ trên giao diện để thử lại; xóa ảnh trước khi tạo vật thể khác.
 
 ## 1. Kiến trúc
@@ -439,6 +457,7 @@ Trong trình xem mô hình, chọn **SẢN PHẨM → Ảnh & video**:
 
 Bản đầu dựng lại toàn bộ asset ở trạng thái lắp ráp, không chụp giao diện và không áp dụng trạng thái ẩn/tách/
 chuyển động trong trình xem. Dùng ánh sáng phần mềm cố định và texture màu cơ bản; vật liệu có thể khác Qt 3D
-(chưa có normal map, HDR hoặc chỉnh đèn). Chưa hỗ trợ gắn logo, nền trong suốt hay âm thanh.
+(chưa có normal map, HDR hoặc chỉnh đèn). PNG hỗ trợ nền trong suốt theo vùng phủ hình học; vật liệu kính chưa có
+alpha theo độ truyền sáng. MP4 chỉ có nền sáng/tối. Chưa hỗ trợ gắn logo hay âm thanh.
 Xuất CPU có thể chậm với lưới lớn; nên thử 512 px / 3 giây trước. MP4 dùng MPEG-4 Part 2 (`mp4v`), không phải H.264.
 

@@ -25,9 +25,10 @@ def test_normalize_all_views_and_reject_invalid_inputs(tmp_path):
     views = load_views(dict(reversed(list(paths.items()))))
     assert list(views) == list(VIEWS)
     for data, mime in views.values():
-        assert mime == "image/jpeg"
+        assert mime == "image/png"
         with Image.open(io.BytesIO(data)) as img:
-            assert img.mode == "RGB" and img.size == (32, 24)
+            assert img.mode == "RGBA" and img.size == (32, 24)
+            assert img.getchannel("A").getextrema() == (180, 180)
     bad = tmp_path / "fake.png"
     bad.write_text("not an image")
     for paths in ({}, {"unknown": str(bad)}, {"front": str(bad)}, {"front": str(tmp_path / "missing.png")}):
@@ -72,7 +73,7 @@ def test_reference_pipeline_uses_all_images_saves_sources_and_skips_text_cache(m
     assert not job.cached
     assert any(c["kind"] == "dsl" and c["images"] for c in gem.calls)
     for view in VIEWS:
-        assert list(tmp_path.glob(f"cache*/**/source/reference_images/{view}.jpg"))
+        assert list(tmp_path.glob(f"cache*/**/source/reference_images/{view}.png"))
 
 
 def test_invalid_reference_fails_before_ai(mkpipe, tmp_path):
@@ -83,11 +84,76 @@ def test_invalid_reference_fails_before_ai(mkpipe, tmp_path):
     assert not gem.calls
 
 
+def test_explicit_reference_cad_bypasses_cloud_but_still_checks_images(mkpipe, tmp_path):
+    def forbidden():
+        pytest.fail("Explicit CAD must not initialize cloud or remove backgrounds")
+    gem = FakeGemini([GOOD], [reference_review()])
+    _, jobs, store = mkpipe(gem, provider_factory=forbidden, dsl_refine_rounds=0)
+    job = wait(jobs.submit("Giữ hai nhịp cầu gãy rời", mode="reference_cad", reference_images=make_views(tmp_path)))
+    assert job.project_id, job.error
+    assert store.load(job.project_id).generation_mode == "dsl"
+    project = store.load(job.project_id)
+    assert not project.has_assembly and not project.explosion_plan
+    assert all(p.explode_distance == 0 for p in project.parts)
+    assert project.quality_report["gates"]["manifest"]["ok"]
+    assert [c["kind"] for c in gem.calls] == ["dsl", "review"]
+    assert all(c["images"] for c in gem.calls)
+
+
+def test_mask_failure_reaches_ui_without_retrying_other_candidates(mkpipe, tmp_path):
+    from nexa.three_d.generation.base import ProviderTask
+    class MaskFailure:
+        name = "test"
+        capabilities = {"image_to_model", "multiview_to_model"}
+        calls = 0
+        def available(self):
+            return True, "ok"
+        def create_from_multiview(self, *a, **kw):
+            self.calls += 1
+            return ProviderTask("1", "multiview_to_model", status="failed", raw_status="reference_mask",
+                                error="Tách nền làm mất sa bàn. Thử CAD từ ảnh gốc.")
+        def get_job_status(self, task):
+            return task
+    provider = MaskFailure()
+    _, jobs, _ = mkpipe(FakeGemini([]), provider_factory=lambda: provider, candidate_count=3, refinement_rounds=2)
+    job = wait(jobs.submit("Sa bàn", quality="high", reference_images=make_views(tmp_path)))
+    assert job.error_code == "reference_mask"
+    assert provider.calls == 1
+
+
 def reference_review(**updates):
-    return {**REVIEW_GOOD, "reference_views": [{"view": v, "shape_score": 9} for v in VIEWS], **updates}
+    return {**REVIEW_GOOD, "object_only": True, "structure_preserved": True, "text_preserved": True,
+            "reference_views": [{"view": v, "shape_score": 9} for v in VIEWS], **updates}
 
 
-@pytest.mark.parametrize("problem", ["wrong_shape", "missing_view", "major_error", "no_review"])
+def test_static_parts_do_not_require_explosion_and_text_failure_is_specific():
+    import copy
+    from nexa.three_d.generation.parametric import compile_dsl_parts
+    from nexa.three_d.pipeline import ModelBuild
+    from nexa.three_d.models import Model3DProject
+    from nexa.three_d.manifest import validate_manifest
+    from nexa.three_d.quality import assess
+    parts = copy.deepcopy(GOOD["parts"])
+    for part in parts:
+        part.pop("parent_id", None)
+        part["explode_distance"] = 0
+        part["explode_dir"] = [0, 0, 0]
+    spec = ModelSpec(category="generic", reference_images={"front": (b"image", "image/jpeg")})
+    build = ModelBuild.from_assembly(compile_dsl_parts(spec, parts).asm)
+    assert len(build.parts) > 1 and not build.has_assembly
+    project = Model3DProject(id="test-static", name="Static", parts=build.parts, materials=list(build.materials.values()),
+                             has_assembly=build.has_assembly, explosion_plan=build.explosion_plan)
+    validation = validate_manifest(project, require_explosion=build.has_assembly)
+    assert not validation.errors
+    report = assess(spec, build.part_data(), mode="dsl", require_assembly=False, manifest_report=validation,
+                    ai_review={"ok": True, **reference_review(text_preserved=False)})
+    assert report.gates["manifest"]["ok"]
+    assert report.gates["reference_similarity"]["detail"] == "Cần hoàn thiện: chữ trên biển chưa khớp hoặc chưa đọc được"
+    assert report.status == "failed"  # no relaxation of visual accuracy
+
+
+@pytest.mark.parametrize("problem", ["wrong_shape", "missing_view", "major_error", "no_review",
+                                     "object_only", "structure_preserved", "text_preserved"])
 def test_reference_quality_rejects_visually_wrong_or_unverified_model(problem):
     from nexa.three_d.generation.parametric import compile_dsl_parts
     from nexa.three_d.pipeline import ModelBuild
@@ -101,6 +167,8 @@ def test_reference_quality_rejects_visually_wrong_or_unverified_model(problem):
         ai["reference_views"] = ai["reference_views"][:-1]
     elif problem == "major_error":
         ai["issues"] = [{"severity": "major", "issue": "Sai đường bao"}]
+    elif problem in ("object_only", "structure_preserved", "text_preserved"):
+        ai[problem] = False
     else:
         ai = None
     report = assess(spec, parts, mode="dsl", ai_review=ai)
@@ -223,3 +291,46 @@ def test_hf_does_not_drop_additional_views(config, tmp_path):
     assert task.status == "failed"
     assert "không nhận đủ ảnh đa góc" in task.error
     assert not calls
+
+
+def test_trellis_preprocesses_every_view_and_enables_multi_mode(config, tmp_path):
+    from test_three_d_levels import _hf, _poll
+    config.set("three_d.hf_3d_spaces", ["trellis-community/TRELLIS"])
+    glb = box_glb(tmp_path / "result.glb")
+    class MaskReviewer:
+        def generate_json(self, *a, **kw):
+            return {"views": [{"index": i, "subject_preserved": True, "background_removed": True,
+                               "reason": "complete"} for i in range(len(kw["images"]) // 2)]}
+    provider, calls = _hf(config, tmp_path, {("trellis-community/TRELLIS", "/generate_and_extract_glb"):
+                                           ("video.mp4", str(glb), str(glb))}, gemini=MaskReviewer())
+    task = _poll(provider, provider.create_from_multiview(load_views(make_views(tmp_path)), quality="high"))
+    assert task.status == "success", task.error
+    names = [c[1] for c in calls]
+    assert names.count("/preprocess_image") == 6
+    assert names[-2:] == ["/multi_mode", "/generate_and_extract_glb"]
+    kw = calls[-1][2]
+    assert len(kw["multiimages"]) == 6  # includes the primary view, not just the other five
+    assert kw["multiimages"][0]["image"] == kw["image"]
+    assert kw["texture_size"] == 2048 and kw["ss_sampling_steps"] == 24
+
+
+def test_trellis_preprocess_failure_never_generates_from_raw_background(config, tmp_path):
+    from test_three_d_levels import _hf, _poll
+    config.set("three_d.hf_3d_spaces", ["trellis-community/TRELLIS"])
+    provider, calls = _hf(config, tmp_path, {("trellis-community/TRELLIS", "/preprocess_image"): None})
+    task = _poll(provider, provider.create_from_multiview(load_views(make_views(tmp_path))))
+    assert task.status == "failed"
+    assert not any(c[1] == "/generate_and_extract_glb" for c in calls)
+
+
+def test_trellis_rejects_mask_that_keeps_only_a_flag(config, tmp_path):
+    from test_three_d_levels import _hf, _poll
+    class BadMaskReviewer:
+        def generate_json(self, *a, **kw):
+            return {"views": [{"index": i, "subject_preserved": False, "background_removed": True,
+                               "reason": "Only the flag remains"} for i in range(len(kw["images"]) // 2)]}
+    config.set("three_d.hf_3d_spaces", ["trellis-community/TRELLIS"])
+    provider, calls = _hf(config, tmp_path, {}, gemini=BadMaskReviewer())
+    task = _poll(provider, provider.create_from_multiview(load_views(make_views(tmp_path))))
+    assert task.status == "failed" and "Tách nền làm mất vật thể" in task.error
+    assert not any(c[1] == "/generate_and_extract_glb" for c in calls)

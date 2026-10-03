@@ -146,6 +146,9 @@ class DslDesigner:
         refs = getattr(self, "reference_images", {})
         if refs:
             prompt += reference_prompt(refs, len(images or []))
+            prompt += ("\nƯu tiên tài sản 3D nhìn giống ảnh, KHÔNG yêu cầu tháo lắp. "
+                       "Các phần hình học chỉ để dựng hình và gán màu; đặt explode_distance=0. "
+                       "Không hy sinh đường bao, kết cấu, vật liệu hoặc chi tiết nhìn thấy để tạo assembly.")
             images = list(images or []) + list(refs.values())
         kwargs: dict[str, Any] = {"system": SYSTEM, "images": images, "max_tokens": int(self.cfg("dsl_max_tokens", 24000)),
                                   "temperature": 0.3}

@@ -29,9 +29,12 @@ NEXA nhờ Gemini viết code theo yêu cầu, **tự kiểm tra và tự sửa 
    |---|---|
    | Python | `compile` và pyflakes (lỗi tên chưa định nghĩa…) |
    | JS | `node --check` |
+   | TypeScript / TSX | `tsc --noEmit`, theo nhóm tệp; cần compiler đã cài |
+   | C / C++ | Clang/GCC `-fsyntax-only` hoặc MSVC `/Zs` |
+   | PHP / Ruby / Lua | `php -n -l`, `ruby --disable-gems -c`, `luac -p` |
    | PowerShell | Parser của PowerShell |
    | Go | `gofmt -e` |
-   | Java | `javac` (nếu máy có) |
+   | Java | `javac -proc:none` (nếu máy có), không chạy annotation processor |
    | JSON, YAML, TOML | Trình parse tương ứng |
 
 4. Còn lỗi thì NEXA gửi lỗi lại cho Gemini sửa, tối đa `code.repair_rounds` lượt. Bản sửa nào không tốt hơn thì NEXA
@@ -83,7 +86,9 @@ NEXA nhờ Gemini viết code theo yêu cầu, **tự kiểm tra và tự sửa 
 - Python:
   - có tệp `test_*.py` → chạy `pytest -q` (máy không có pytest thì dùng bộ chạy mini có sẵn);
   - không có tệp kiểm thử → chạy tệp chính.
-- JS: `node --test` hoặc tệp chính. Các ngôn ngữ khác: hiện hướng dẫn chạy tay.
+- JS: `node --test` hoặc tệp chính. Các runner khác trong `nexa/code/runners.py` hỗ trợ nhiều ngôn ngữ,
+  gồm C/C++, C#, Java, Go, Rust, PHP, Ruby, TypeScript… tùy công cụ đã cài. Không tự cài compiler hay thư viện.
+  Đầu ra chạy trực tiếp trong bảng và có thể nhập stdin; tệp tương tác trên đĩa không đặt hạn chạy tổng như test tạm.
 - Dừng khẩn cấp (Ctrl+Alt+Esc) hủy việc code đang chạy và khóa tính năng cho tới khi anh nói “tiếp tục điều khiển”.
 
 ## 5. Cấu hình (`config/settings.yaml`, mục `code:`)
@@ -120,5 +125,7 @@ NEXA nhờ Gemini viết code theo yêu cầu, **tự kiểm tra và tự sửa 
 
 - Chất lượng code phụ thuộc Gemini. Kiểm tra tĩnh và kiểm thử chỉ bắt được một phần lỗi. Hãy đọc code trước khi dùng
   cho việc thật.
-- TypeScript, C#, C++, Rust… hiện chỉ được tô màu, chưa có trình kiểm tra cục bộ (trạng thái “Chưa kiểm tra”).
+- TypeScript, C/C++, PHP, Ruby, Lua có kiểm tra cục bộ khi tìm thấy compiler/parser. Thiếu công cụ báo “Chưa kiểm tra”.
+  C#, Rust và các ngôn ngữ còn lại chưa có bộ kiểm tra tĩnh tích hợp riêng; khả năng chạy thử và kiểm tra tĩnh là hai việc khác nhau.
+- TypeScript/C/C++ dùng cấu hình kiểm tra mặc định, có thể báo lỗi kiểu hoặc thiếu thư viện phụ thuộc; không thay thế build của dự án thật.
 - Gemini miễn phí có hạn mức; mỗi lượt sửa lỗi là một lần gọi thêm.

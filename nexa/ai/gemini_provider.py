@@ -16,11 +16,13 @@ import random
 import re
 import threading
 import time
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
 from nexa.ai.prompts import SYSTEM_INSTRUCTION, VISION_INSTRUCTION, COMPANION_INSTRUCTION
+from nexa.ai.conversation_history import ConversationHistory, bounded
 from nexa.core.safety import Cancelled, CancelToken
 from nexa.utils.logging import get_logger, register_secret
 
@@ -108,7 +110,8 @@ class GeminiProvider:
     name = "gemini"
 
     def __init__(self, config: Any, client_factory: Callable[[str, float], Any] | None = None,
-                 sleep: Callable[[float], None] = time.sleep, state_path: Any = None) -> None:
+                 sleep: Callable[[float], None] = time.sleep, state_path: Any = None,
+                 history_path: Any = None) -> None:
         self.config = config
         self._state_path = state_path
         self._client_factory = client_factory or self._default_client
@@ -134,6 +137,29 @@ class GeminiProvider:
         self.last_latency_ms = 0.0                    # thời gian phản hồi của lần gọi thành công gần nhất
         self._good_model = ""                         # model trả lời thành công gần nhất: dùng trước, chờ đủ lâu
         self._load_state()
+        from nexa.utils.config import CONFIG_DIR, LOCAL_DATA_DIR
+        history_dir = LOCAL_DATA_DIR
+        if state_path is not None:
+            history_dir = Path(state_path).parent
+        elif (hasattr(config, "settings_path") and
+              Path(config.settings_path).resolve() != (CONFIG_DIR / "settings.yaml").resolve()):
+            # An explicitly isolated/custom config also isolates its history.
+            history_dir = Path(config.settings_path).parent
+        self._history_store = ConversationHistory(
+            history_path if history_path is not None else history_dir / "conversation_history.json")
+        self._saved_turns: list[tuple[str, str]] = []
+        self._history_generation = 0
+        self._clear_generation = 0
+        self._persist_history = self.config.get("ai.persist_history") is True
+        if self._persist_history:
+            from google.genai import types
+            self._saved_turns = self._history_store.load(self._history_limit())
+            for user, model in self._saved_turns:
+                self._turn_starts.append(len(self._history))
+                self._history.extend([types.Content(role=role, parts=[types.Part(text=text)])
+                                      for role, text in (("user", user), ("model", model))])
+        if hasattr(self.config, "watch_history_settings"):
+            self.config.watch_history_settings(self._history_settings_changed)
 
     # ----- cấu hình -----
     @staticmethod
@@ -388,6 +414,31 @@ class GeminiProvider:
         return types.ThinkingConfig(thinking_level=level)
 
     # ----- hội thoại -----
+    def _history_limit(self) -> int:
+        limit = self.config.get("ai.max_history_turns")
+        return limit if type(limit) is int and 1 <= limit <= 50 else 12
+
+    def _history_settings_changed(self) -> None:
+        with self._lock:
+            enabled = self.config.get("ai.persist_history") is True
+            if enabled != self._persist_history:
+                self._history_generation += 1
+                self._saved_turns.clear()
+                self._persist_history = enabled
+                # Enabling mid-session starts with future turns; never backfill private turns.
+                self._history_store.delete()
+            self._saved_turns = bounded(self._saved_turns, self._history_limit())
+            if enabled and self._saved_turns:
+                self._history_store.save(self._saved_turns, self._history_limit())
+
+    def _save_exchange(self, user: str, model: str, generation: int) -> None:
+        with self._lock:
+            if (not self._persist_history or self.config.get("ai.persist_history") is not True
+                    or generation != self._history_generation):
+                return
+            self._saved_turns = bounded(self._saved_turns + [(user, model)], self._history_limit())
+            self._history_store.save(self._saved_turns, self._history_limit())
+
     def add_note(self, note: str) -> None:
         """Ghi chú ngữ cảnh (ví dụ lệnh cơ bản vừa chạy) gửi kèm lượt Gemini kế tiếp."""
         with self._lock:
@@ -399,6 +450,10 @@ class GeminiProvider:
             self._history.clear()
             self._turn_starts.clear()
             self._notes.clear()
+            self._history_generation += 1
+            self._clear_generation += 1
+            self._saved_turns.clear()
+            self._history_store.delete()
 
     @property
     def history_turns(self) -> int:
@@ -414,7 +469,7 @@ class GeminiProvider:
 
     def _trim(self, reserve: int = 0) -> None:
         """Giữ tối đa max_history_turns lượt (tính cả lượt sắp thêm nếu reserve=1); cắt đúng ranh giới lượt."""
-        limit = max(1, int(self.config.get("ai.max_history_turns") or 12)) - reserve
+        limit = self._history_limit() - reserve
         with self._lock:
             while len(self._turn_starts) > max(0, limit) and len(self._turn_starts) > 0:
                 if len(self._turn_starts) == 1:
@@ -434,6 +489,9 @@ class GeminiProvider:
         self._trim(reserve=1)
         with self._lock:
             start = len(self._history)
+            generation = self._history_generation
+            clear_generation = self._clear_generation
+            persist_turn = self._persist_history
             notes = ("[Ghi chú: " + " ".join(self._notes[-5:]) + "]\n") if self._notes else ""
             self._notes.clear()
             self._history.append(types.Content(role="user", parts=[types.Part(text=context + notes + text)]))
@@ -442,6 +500,10 @@ class GeminiProvider:
         try:
             for step in range(max_steps + 1):
                 resp = self._call(self._history, cfg, token)
+                token.raise_if_cancelled()
+                with self._lock:
+                    if clear_generation != self._clear_generation:
+                        raise Cancelled("Lịch sử hội thoại đã bị xóa")
                 self._account(resp)
                 cand = resp.candidates[0] if getattr(resp, "candidates", None) else None
                 content = getattr(cand, "content", None) if cand is not None else None
@@ -450,6 +512,8 @@ class GeminiProvider:
                     self._rollback(start)
                     return TurnResult(f"Gemini không trả lời được yêu cầu này (lý do: {reason}).", steps, "empty")
                 with self._lock:
+                    if clear_generation != self._clear_generation:
+                        raise Cancelled("Lịch sử hội thoại đã bị xóa")
                     self._history.append(content)
                 calls = [p.function_call for p in content.parts if getattr(p, "function_call", None)]
                 if companion and calls:
@@ -459,6 +523,11 @@ class GeminiProvider:
                     text_out = "".join(p.text for p in content.parts
                                        if getattr(p, "text", None) and not getattr(p, "thought", False)).strip()
                     self._trim()
+                    plain_text = (content.role == "model" and all(
+                        set(p.model_dump(exclude_none=True)) <= {"text", "thought", "thought_signature"}
+                        for p in content.parts))
+                    if persist_turn and not steps and text_out and plain_text:
+                        self._save_exchange(text, text_out, generation)
                     return TurnResult(text_out or "Dạ.", steps)
                 if step >= max_steps:
                     done = ", ".join(f"{s['name']}({'ok' if s['ok'] else 'lỗi'})" for s in steps)
@@ -476,14 +545,20 @@ class GeminiProvider:
                     parts.append(types.Part(function_response=types.FunctionResponse(
                         id=getattr(fc, "id", None), name=fc.name, response=response)))
                 with self._lock:
+                    if clear_generation != self._clear_generation:
+                        raise Cancelled("Lịch sử hội thoại đã bị xóa")
                     self._history.append(types.Content(role="user", parts=parts))
         except Cancelled:
             done = ", ".join(f"{s['name']}({'ok' if s['ok'] else 'lỗi'})" for s in steps)
-            self._rollback(start, f"Lượt trước bị người dùng hủy; đã làm: {done or 'chưa có'}." if steps else "")
+            with self._lock:
+                if clear_generation == self._clear_generation:
+                    self._rollback(start, f"Lượt trước bị người dùng hủy; đã làm: {done or 'chưa có'}." if steps else "")
             raise
         except AIError:
             done = ", ".join(f"{s['name']}({'ok' if s['ok'] else 'lỗi'})" for s in steps)
-            self._rollback(start, f"Lượt trước lỗi kết nối; đã làm: {done}." if steps else "")
+            with self._lock:
+                if clear_generation == self._clear_generation:
+                    self._rollback(start, f"Lượt trước lỗi kết nối; đã làm: {done}." if steps else "")
             raise
         return TurnResult("Em chưa hoàn thành được yêu cầu.", steps, "unknown")
 

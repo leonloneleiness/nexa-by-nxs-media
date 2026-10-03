@@ -156,6 +156,24 @@ def test_stats_ring_qml_loads(app):
     assert abs(ring.property("radius") - 500 * 0.445) < 1e-6
 
 
+def test_generation_progress_reports_real_job_and_freezes_elapsed(app):
+    keep, problems = _load(app, "GenerationProgress.qml")
+    card = keep[2]
+    assert card is not None and not problems, problems
+    assert card.property("statusText") == "Chưa có tác vụ"
+    card.setProperty("job", {"state": "running", "progress": 0.42, "started": 100})
+    card.setProperty("now", 165)
+    assert card.property("percent") == 42 and card.property("seconds") == 65
+    assert card.property("running")
+    card.setProperty("job", {"state": "done", "progress": 1, "started": 100, "finished": 180})
+    card.setProperty("now", 900)
+    assert card.property("percent") == 100 and card.property("seconds") == 80
+    assert card.property("statusText") == "ĐÃ XONG" and not card.property("running")
+    card.setProperty("job", {"state": "failed", "progress": 1, "error_code": "quality_gate", "project_id": "draft"})
+    assert card.property("percent") == 99
+    assert card.property("statusText") == "CẦN HOÀN THIỆN"
+
+
 def test_main_qml_layout(config, app):
     """Main.qml nạp với UiBridge thật: không cảnh báo, có dock / nút dừng / vòng thông số, không còn khung Tác vụ."""
     from PySide6.QtCore import Property, QObject, QPointF, Signal, Slot

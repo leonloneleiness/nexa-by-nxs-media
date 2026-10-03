@@ -4,6 +4,9 @@ import sys
 from nexa.desktop.win32api import set_dpi_awareness
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--nexa-check-install":
+        from nexa.installation_check import main as check_install
+        sys.exit(check_install(sys.argv[2]))
     if len(sys.argv) > 2 and sys.argv[1] == "--nexa-console-run":
         # cửa sổ "chạy thử tệp" do NEXA mở (nexa/code/console_run.py) — không nạp giao diện
         from nexa.code.console_run import console_main

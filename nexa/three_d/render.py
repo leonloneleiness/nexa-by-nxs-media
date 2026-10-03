@@ -41,6 +41,7 @@ class RenderResult:
     image: np.ndarray            # (H, W, 3) uint8
     coverage: float              # tỷ lệ pixel có vật thể
     backface_ratio: float        # tỷ lệ pixel (vùng liền khối) thấy mặt sau
+    mask: np.ndarray | None = None  # (H, W) uint8 surface coverage, 0–255; not material opacity
 
 
 def _basis(view):
@@ -236,7 +237,7 @@ def render(meshes: Sequence[tuple[MeshData, Material]], view: str = "front", siz
         g = np.linspace(0, 1, H)[:, None]
         img[:] = (top * (1 - g) + bot * g)[:, None, :] * np.ones((1, W, 1))
     if not items:
-        return RenderResult(_downsample(img, ssaa), 0.0, 0.0)
+        return RenderResult(_downsample(img, ssaa), 0.0, 0.0, np.zeros((int(size), int(size)), np.uint8))
     if bounds is None:
         allv = np.vstack([m.vertices for m, _ in items])
         lo, hi = allv.min(axis=0), allv.max(axis=0)
@@ -361,14 +362,15 @@ def render(meshes: Sequence[tuple[MeshData, Material]], view: str = "front", siz
             with np.errstate(invalid="ignore"):
                 edge |= (filled != f2) | (np.abs(z - z2) > thr)
         img[edge & filled] *= 0.55
-    return RenderResult(_downsample(img, ssaa), float(filled.mean()), back_ratio)
+    mask = _downsample(filled[:, :, None], ssaa)[:, :, 0]
+    return RenderResult(_downsample(img, ssaa), float(filled.mean()), back_ratio, mask)
 
 
 def _downsample(img: np.ndarray, k: int) -> np.ndarray:
     k = max(1, int(k))
     if k > 1:
         h, w = img.shape[0] // k, img.shape[1] // k
-        img = img[:h * k, :w * k].reshape(h, k, w, k, 3).mean(axis=(1, 3))
+        img = img[:h * k, :w * k].reshape(h, k, w, k, img.shape[2]).mean(axis=(1, 3))
     return (np.clip(img, 0, 1) * 255).astype(np.uint8)
 
 

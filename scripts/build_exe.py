@@ -10,6 +10,8 @@ Bản EXE phải được build và kiểm thử trên Windows; NEXA không coi 
 from __future__ import annotations
 
 import shutil
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -18,7 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SEP = ";"  # Windows
 # module nạp động (import trong hàm) — PyInstaller không tự thấy
 THREE_D_MODULES = [f"nexa.three_d.generation.templates.{t}" for t in
-                   ("fasteners", "mechanical", "uav", "rover", "humanoid", "quadruped", "helicopter")] + \
+                   sorted(p.stem for p in (ROOT / "nexa/three_d/generation/templates").glob("*.py")
+                          if p.stem != "__init__")] + \
     ["nexa.three_d.generation.tripo_provider", "nexa.three_d.generation.meshy_provider",
      "nexa.three_d.generation.hf_provider", "nexa.three_d.generation.dsl_designer", "nexa.three_d.tools",
      "nexa.three_d.intents", "nexa.three_d.service", "nexa.ui.three_d_bridge"]
@@ -27,7 +30,30 @@ CODE_MODULES = [f"nexa.code.{m}" for m in ("models", "checks", "highlight", "gen
                                            "intents")] + ["nexa.ui.code_bridge"]
 
 
+def build_environment() -> dict[str, str]:
+    """Do not resolve native dependencies from unrelated apps/tools on PATH.
+
+    In particular Poppler's icuuc.dll has a different ABI from Windows ICU used
+    by Qt. Collecting it silently breaks every Qt import in the frozen app.
+    Wheel-specific DLL directories are collected by their PyInstaller hooks.
+    """
+    env = dict(os.environ)
+    windows = Path(env.get("SystemRoot", r"C:\Windows"))
+    env["PATH"] = os.pathsep.join(dict.fromkeys(str(p) for p in (
+        Path(sys.executable).parent, Path(sys.base_prefix), Path(sys.base_prefix) / "DLLs",
+        windows / "System32", windows)))
+    env["PYTHONUTF8"] = "1"
+    for key in ("PYTHONPATH", "QT_PLUGIN_PATH", "QML2_IMPORT_PATH", "QML_IMPORT_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH"):
+        env.pop(key, None)
+    return env
+
+
 def main() -> int:
+    # Redirected Windows consoles may use cp1258, which cannot encode all
+    # Vietnamese messages. Keep build logs readable instead of crashing.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     # --dist <thư mục>: build ra chỗ khác (kiểm thử) để không ghi đè bản dist/NEXA đã giao
     dist = Path(sys.argv[sys.argv.index("--dist") + 1]) if "--dist" in sys.argv else ROOT / "dist"
     try:
@@ -46,6 +72,9 @@ def main() -> int:
     ]
     args = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--name", "NEXA", "--windowed",
             "--distpath", str(dist), "--workpath", str(ROOT / "build"), "--specpath", str(ROOT / "build")]
+    icon = ROOT / "assets" / "branding" / "nexa-icon.ico"
+    if icon.is_file():
+        args += ["--icon", str(icon)]
     for src, dst in datas:
         args += ["--add-data", f"{src}{SEP}{dst}"]
     for pkg in ("mediapipe", "faster_whisper", "ctranslate2", "winrt", "pywinauto", "comtypes", "edge_tts",
@@ -62,7 +91,7 @@ def main() -> int:
         args += ["--add-binary", f"{dll}{SEP}{dll.parent.relative_to(site).as_posix()}"]
     args.append(str(ROOT / "main.py"))
     print("Chạy:", " ".join(args[:8]), "…")
-    code = subprocess.call(args, cwd=str(ROOT))
+    code = subprocess.call(args, cwd=str(ROOT), env=build_environment())
     if code != 0:
         return code
     out = dist / "NEXA"
@@ -80,6 +109,17 @@ def main() -> int:
     for bad in (out / ".env", out / "config" / "settings.yaml"):
         if bad.exists():
             bad.unlink()
+    report = out / "installation-check.json"
+    check = subprocess.run([str(out / "NEXA.exe"), "--nexa-check-install", str(report.resolve())],
+                           timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                           env=build_environment())
+    if check.returncode or not report.exists():
+        print("Bản EXE chưa vượt kiểm tra module/template; xem", report)
+        return 6
+    result = json.loads(report.read_text(encoding="utf-8"))
+    if not result.get("ok"):
+        print("Lỗi kiểm tra EXE:", result.get("errors"))
+        return 6
     print(f"Xong: {out / 'NEXA.exe'}")
     print("Lưu ý: bridge YouTube trong bản EXE vẫn cần Python để chạy native_host.py (xem browser_bridge/README.md).")
     return 0

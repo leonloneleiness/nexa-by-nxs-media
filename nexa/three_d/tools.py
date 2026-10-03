@@ -51,8 +51,10 @@ def h_generate(args: dict, ctx: Any) -> ToolResult:
     prompt = args["prompt"].strip()
     questions = svc.precheck(prompt)
     if questions:
+        suffix = " bằng CAD tham số" if args.get("mode") == "parametric" else " bằng cloud" if args.get("mode") == "cloud" else ""
+        suffix += " chất lượng cao" if args.get("quality") == "high" else ""
         return ToolResult.failure(questions[0], "needs_input", questions=questions,
-                                  resume=prompt.rstrip(" .") + ", {}")
+                                  resume=prompt.rstrip(" .") + suffix + ", {}")
     job = svc.submit(prompt, mode=args.get("mode", "auto"), quality=args.get("quality", "standard"),
                      source=ctx.source.value, open_when_ready=bool(args.get("open_when_ready", True)))
     return ToolResult.success(f"Em bắt đầu tạo mô hình “{truncate(prompt, 60)}”. Em sẽ báo và mở trình xem 3D khi xong "

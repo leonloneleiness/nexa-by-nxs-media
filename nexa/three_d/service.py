@@ -77,6 +77,13 @@ class ThreeDService:
 
     def submit(self, prompt: str, mode: str = "auto", quality: str = "standard", source: str = "keyboard",
                open_when_ready: bool = True, reference_images: dict[str, str] | None = None) -> Job:
+        if not self.enabled or self.locked:
+            raise RuntimeError("NEXA đang khóa hoặc tính năng 3D chưa bật.")
+        if mode not in ("auto", "parametric", "cloud", "reference_cad") or quality not in ("standard", "high"):
+            raise ValueError("Chế độ hoặc chất lượng tạo mô hình không hợp lệ.")
+        prompt = prompt.strip()
+        if not prompt:
+            raise ValueError("Hãy nhập mô tả mô hình.")
         options = {"reference_images": dict(reference_images)} if reference_images else {}
         job = self.jobs.submit(prompt, mode=mode, quality=quality, source=source, open_when_ready=open_when_ready, **options)
         self._latest_job = job.id

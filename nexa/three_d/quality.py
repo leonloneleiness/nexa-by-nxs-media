@@ -596,18 +596,38 @@ def assess(spec: ModelSpec, parts: list[PartData], *, mode: str, metadata: dict 
         "geometry": {"ok": not geo_errors, "detail": "; ".join(geo_errors[:4]) or "không lỗi nghiêm trọng"},
         "asset": {"ok": not val_errors, "detail": "; ".join(val_errors[:4]) or "hợp lệ"},
         "dimensions": {"ok": not dim_errors, "detail": "; ".join(dim_errors[:4]) or "đúng"},
-        "manifest": {"ok": (not man_errors) or not require_assembly, "detail": "; ".join(man_errors[:4]) or "hợp lệ"},
+        "manifest": {"ok": not man_errors, "detail": "; ".join(man_errors[:4]) or "hợp lệ"},
     }
     if spec.reference_images:
         per_view = {x.get("view"): x.get("shape_score", 0) for x in (ai or {}).get("reference_views", [])}
         similar = (ai is not None and ai.get("category_match") is True
+                   and all(ai.get(k) is True for k in ("object_only", "structure_preserved", "text_preserved"))
                    and float(ai.get("shape_score", 0)) >= 8
                    and float(ai.get("appearance_score", 0)) >= 7
                    and all(float(per_view.get(v, 0)) >= 7.5 for v in spec.reference_images)
                    and not any(i.get("severity") in ("major", "critical") for i in ai.get("issues", [])))
+        reasons = []
+        if ai is None:
+            reasons.append("chưa có đánh giá ảnh hợp lệ")
+        else:
+            for key, label in (("category_match", "loại vật thể chưa khớp"),
+                               ("object_only", "còn hậu cảnh hoặc chưa xác nhận loại hết hậu cảnh"),
+                               ("structure_preserved", "kết cấu/khoảng gãy chưa khớp hoặc chưa được xác nhận"),
+                               ("text_preserved", "chữ trên biển chưa khớp hoặc chưa đọc được")):
+                if ai.get(key) is not True:
+                    reasons.append(label)
+            if float(ai.get("shape_score", 0)) < 8:
+                reasons.append(f"hình dáng {ai.get('shape_score', 0):g}/10, cần ít nhất 8")
+            if float(ai.get("appearance_score", 0)) < 7:
+                reasons.append(f"màu/vật liệu {ai.get('appearance_score', 0):g}/10, cần ít nhất 7")
+            from nexa.three_d.reference_images import VIEWS
+            for view in spec.reference_images:
+                if float(per_view.get(view, 0)) < 7.5:
+                    reasons.append(f"góc {VIEWS[view]} chưa đạt 7,5/10" if view in per_view else f"chưa chấm góc {VIEWS[view]}")
+            reasons.extend(str(i.get("issue", "còn lỗi lớn")) for i in ai.get("issues", [])
+                           if i.get("severity") in ("major", "critical"))
         gates["reference_similarity"] = {"ok": bool(similar), "detail":
-            "Đạt đối chiếu ảnh từng góc" if similar else
-            "Chưa giống ảnh tham chiếu hoặc chưa kiểm chứng đủ góc: cần hình dáng ≥8/10, từng góc ≥7,5/10, màu ≥7/10 và không còn lỗi lớn."}
+            "Đạt đối chiếu ảnh từng góc" if similar else "Cần hoàn thiện: " + "; ".join(reasons)}
     passed = all(g["ok"] for g in gates.values())
     supported = spec.supported and mode != "dsl"
     status = ("passed" if passed else "failed") if supported else ("best_effort" if all(

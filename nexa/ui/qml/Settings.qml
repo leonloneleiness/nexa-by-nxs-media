@@ -348,8 +348,11 @@ Item {
                 }
                 Note { text: "Đây là giới hạn trong ứng dụng, khác với quota tài khoản Google. Quota/giá thực tế xem tại Google AI Studio. Số bước công cụ tối đa và timeout đọc từ NEXA_MAX_TOOL_STEPS và GEMINI_REQUEST_TIMEOUT_SECONDS trong .env." }
                 Label2 { text: "Hội thoại" }
-                DarkButton { text: "Xóa hội thoại (chỉ nhớ trong phiên)"; onClicked: nexa.clearConversation() }
-                Note { text: "Dữ liệu gửi Gemini: câu lệnh đã chuyển thành chữ, giờ hiện tại, tên cửa sổ đang làm việc, số màn hình và kết quả các công cụ. Không gửi audio, video camera hay màn hình (trừ khi anh dùng 'đọc màn hình' và bấm Đồng ý). Lịch sử được giữ trong bộ nhớ máy; NEXA dùng API generate_content không lưu hội thoại phía máy chủ theo tính năng của NEXA, nhưng việc Google xử lý/lưu dữ liệu tuân theo điều khoản gói API anh dùng." }
+                DarkButton { text: "Xóa hội thoại và bản đã lưu trên máy"; onClicked: nexa.clearConversation() }
+                DarkCheck { Layout.columnSpan: root.width < 700 ? 1 : 2; text: "Lưu hội thoại trên thiết bị này (mặc định tắt)"
+                            checked: root.s.ai.persist_history === true; onToggled: root.s.ai.persist_history = checked }
+                Note { text: "Sau khi Lưu cài đặt: chỉ lưu các lượt trò chuyện chữ hoàn tất tiếp theo; bỏ lượt dùng công cụ và không ghi trực tiếp ghi chú/ngữ cảnh hệ thống. Tệp JSON không mã hóa mặc định ở %LOCALAPPDATA%/NEXA/conversation_history.json (cấu hình tùy chỉnh có thể dùng thư mục riêng), tối đa số lượt ở trên và 256 KB; khôi phục làm ngữ cảnh AI khi mở lại. Tắt rồi Lưu ngừng lưu và yêu cầu xóa bản trên đĩa; nút Xóa hội thoại xóa bộ nhớ và yêu cầu xóa tệp. Nếu lỗi quyền truy cập/ổ đĩa, tệp có thể còn và NEXA ghi cảnh báo trong log; cần kiểm tra/xóa tệp thủ công. Nội dung anh nhập và câu trả lời vẫn có thể chứa thông tin riêng tư; bộ lọc API key không loại bỏ mọi bí mật." }
+                Note { text: "Dữ liệu gửi Gemini: câu lệnh đã chuyển thành chữ, giờ hiện tại, tên cửa sổ đang làm việc, số màn hình và kết quả các công cụ. Không gửi audio, video camera hay màn hình (trừ khi anh dùng 'đọc màn hình' và bấm Đồng ý). Mặc định lịch sử chỉ ở bộ nhớ; lưu trên thiết bị là tùy chọn ở trên. NEXA dùng API generate_content không lưu hội thoại phía máy chủ theo tính năng của NEXA, nhưng việc Google xử lý/lưu dữ liệu tuân theo điều khoản gói API anh dùng." }
             }
 
             // ===== 4. Cử chỉ =====

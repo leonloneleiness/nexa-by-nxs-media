@@ -93,15 +93,18 @@ def test_hf_without_token_keeps_level2_first(mkpipe):
 def test_hf_reuses_one_client_per_space_within_a_job(config, tmp_path):
     """TRELLIS cần phiên gradio liên tục: /start_session và /generate_and_extract_glb phải cùng một client."""
     import time
-    from test_three_d_levels import _Job, _png, box_glb
+    from test_three_d_levels import _Job, _png, box_glb, TRELLIS_CONFIG
     from nexa.three_d.generation.hf_provider import HFSpaceProvider
     glb = box_glb(tmp_path / "m.glb")
     made = []
 
     def factory(space, workdir):
         class C:
+            config = TRELLIS_CONFIG
             def submit(self, api_name, **kw):
                 self.calls.append(api_name)
+                if api_name == "/preprocess_image":
+                    return _Job(result=kw["image"])
                 if space.startswith("black-forest"):
                     return _Job(result=(_png(tmp_path), 7))
                 return _Job(result=None if api_name == "/start_session" else ({"video": "x"}, str(glb), str(glb)))
@@ -117,7 +120,7 @@ def test_hf_reuses_one_client_per_space_within_a_job(config, tmp_path):
         time.sleep(0.02)
     assert t.status == "success", t.error
     trellis = [c for s, c in made if s == "trellis-community/TRELLIS"]
-    assert len(trellis) == 1 and trellis[0].calls == ["/start_session", "/generate_and_extract_glb"]
+    assert len(trellis) == 1 and trellis[0].calls == ["/start_session", "/preprocess_image", "/single_mode", "/generate_and_extract_glb"]
 
 
 def _textured_glb(tmp_path, color=(20, 60, 200), metallic_missing=True):

@@ -164,8 +164,13 @@ class LiveRun:
                 ln = self.lines[idx - self.dropped]
                 ln.open = False
                 self.lines.insert(idx - self.dropped + 1, Line("in", text))
+                for stream, open_idx in self._open.items():
+                    if open_idx > idx:
+                        self._open[stream] = open_idx + 1
+                self._trim()
             else:
                 self._add("in", text)
+            self._cr.pop("out", None)
         self._changed()
         return True
 
@@ -173,10 +178,18 @@ class LiveRun:
     def _add(self, kind: str, text: str) -> None:
         with self._lock:
             self.lines.append(Line(kind, text))
-            if len(self.lines) > MAX_LINES:
-                cut = len(self.lines) - MAX_LINES
-                del self.lines[:cut]
-                self.dropped += cut
+            self._trim()
+
+    def _trim(self) -> None:
+        """Bound retained lines and retire evicted stream cursors; caller holds lock."""
+        cut = max(0, len(self.lines) - MAX_LINES)
+        if cut:
+            del self.lines[:cut]
+            self.dropped += cut
+            for stream, idx in list(self._open.items()):
+                if idx < self.dropped:
+                    del self._open[stream]
+                    self._cr.pop(stream, None)
 
     def info(self, text: str, kind: str = "info") -> None:
         self._add(kind, text)
@@ -214,10 +227,7 @@ class LiveRun:
                     self.lines.append(Line(stream, text, open=last))
                     if last:
                         self._open[stream] = len(self.lines) - 1 + self.dropped
-                    if len(self.lines) > MAX_LINES:
-                        cut = len(self.lines) - MAX_LINES
-                        del self.lines[:cut]
-                        self.dropped += cut
+                    self._trim()
         self._changed()
 
     def _changed(self) -> None:

@@ -1,7 +1,8 @@
 """Chuẩn hóa định dạng, kiểm tra tĩnh và chạy thử code do Gemini viết.
 
 - Kiểm tra tĩnh KHÔNG chạy code: Python (compile + pyflakes), JavaScript (node --check), JSON/YAML/TOML (parser),
-  PowerShell (parser của PowerShell), Go (gofmt -e), Java (javac, nếu máy có JDK). Ngôn ngữ khác: báo "chưa kiểm tra".
+  TypeScript (tsc --noEmit), C/C++ (syntax-only), PHP/Ruby/Lua (parse-only),
+  PowerShell (parser), Go (gofmt -e), Java (javac -proc:none). Thiếu công cụ: báo "chưa kiểm tra".
 - Chạy thử (run_project) THỰC SỰ chạy code trên máy nên chỉ gọi khi anh bấm "Chạy thử": thư mục tạm riêng, không stdin,
   không cửa sổ console, biến môi trường chứa KEY/TOKEN/SECRET/PASSWORD bị bỏ, quá hạn thì diệt cả cây tiến trình.
   Đây KHÔNG phải sandbox hệ thống — code vẫn có quyền của tài khoản Windows hiện tại.
@@ -133,9 +134,15 @@ def check_toml(f: CodeFile) -> FileCheck:
 
 
 def _run_tool(cmd: list[str], cwd: Path, timeout: float = 20.0) -> tuple[int | None, str]:
+    # Runtime preload hooks may execute code even for a syntax-only command.
+    env = {k: v for k, v in os.environ.items() if k.upper() not in {
+        "NODE_OPTIONS", "RUBYOPT", "RUBYLIB", "LUA_INIT", "LUA_INIT_5_4", "LUA_INIT_5_3",
+        "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS", "JDK_JAVAC_OPTIONS",
+        "CL", "_CL_", "CLASSPATH",
+    }}
     try:
         p = subprocess.run(cmd, cwd=str(cwd), capture_output=True, timeout=timeout, stdin=subprocess.DEVNULL,
-                           creationflags=NO_WINDOW)
+                           creationflags=NO_WINDOW, env=env)
     except subprocess.TimeoutExpired:
         return None, "quá thời gian kiểm tra"
     except OSError as exc:
@@ -209,7 +216,8 @@ def check_java(files: list[CodeFile], root: Path) -> list[FileCheck]:
     if not javac:
         return [FileCheck(f.path, "skipped", "javac", ["Máy chưa có JDK (javac) nên chưa biên dịch thử."]) for f in files]
     out_dir = root / "__nexa_classes"
-    code, out = _run_tool([javac, "-encoding", "UTF-8", "-d", str(out_dir), *[f.path for f in files]], root, 60)
+    code, out = _run_tool([javac, "-proc:none", "-encoding", "UTF-8", "-d", str(out_dir),
+                           *[str(root / f.path) for f in files]], root, 60)
     shutil.rmtree(out_dir, ignore_errors=True)
     res = []
     for f in files:
@@ -222,8 +230,86 @@ def check_java(files: list[CodeFile], root: Path) -> list[FileCheck]:
     return res
 
 
+def _compiler_result(f: CodeFile, tool: str, code: int | None, out: str, root: Path) -> FileCheck:
+    out = out.replace(str(root) + os.sep, "").replace(root.as_posix() + "/", "")
+    status = "skipped" if code is None else "ok" if code == 0 else "error"
+    messages = _first_lines(out[:MAX_OUTPUT]) if code != 0 else []
+    if code != 0 and not messages:
+        messages = [f"{tool}: kiểm tra không hoàn tất (exit={code})."]
+    return FileCheck(f.path, status, tool, messages)
+
+
+def _typescript_command() -> list[str]:
+    """Use only an installed compiler; never npx or a package install/build hook."""
+    tsc = shutil.which("tsc")
+    if not tsc:
+        return []
+    if Path(tsc).suffix.lower() in (".cmd", ".bat", ".ps1"):
+        # npm's Windows shim requires a shell. Invoke its installed JS entry
+        # directly instead, so generated filenames never become shell text.
+        entry = Path(tsc).parent / "node_modules" / "typescript" / "bin" / "tsc"
+        node = shutil.which("node")
+        return [node, str(entry)] if node and entry.is_file() else []
+    return [tsc]
+
+
+def check_typescript(files: list[CodeFile], root: Path) -> list[FileCheck]:
+    cmd = _typescript_command()
+    tool = "tsc --noEmit"
+    if not cmd:
+        return [FileCheck(f.path, "skipped", tool, ["Không tìm thấy TypeScript (tsc) đã cài."]) for f in files]
+    # Explicit roots bypass tsconfig.json, including generated build settings.
+    # Check the whole group so imports between generated files resolve.
+    code, out = _run_tool([*cmd, "--noEmit", "--pretty", "false", "--incremental", "false",
+                           "--target", "ES2020", "--module", "ESNext", "--moduleResolution", "node",
+                           "--jsx", "preserve", *[str(root / f.path) for f in files]], root, 60)
+    results = []
+    for f in files:
+        result = _compiler_result(f, tool, code, out, root)
+        if code not in (None, 0):
+            result.messages.insert(0, "Nhóm TypeScript không đạt (gồm kiểm tra kiểu và thư viện phụ thuộc).")
+        results.append(result)
+    return results
+
+
+def check_native(f: CodeFile, root: Path) -> FileCheck:
+    cpp = f.language == "cpp"
+    names = ("clang++", "g++") if cpp else ("clang", "gcc")
+    compiler = next((p for name in names if (p := shutil.which(name))), None)
+    if compiler:
+        tool = Path(compiler).name + " -fsyntax-only"
+        cmd = [compiler, "-fsyntax-only", "-x", "c++" if cpp else "c",
+               "-std=c++17" if cpp else "-std=c11", "-I", str(root), str(root / f.path)]
+    elif compiler := shutil.which("cl"):
+        tool = "cl /Zs"
+        cmd = [compiler, "/nologo", "/Zs", "/TP" if cpp else "/TC", "/I" + str(root)]
+        if cpp:
+            cmd.append("/std:c++17")
+        cmd.append(str(root / f.path))
+    else:
+        return FileCheck(f.path, "skipped", "C/C++ syntax", ["Không tìm thấy clang, GCC hoặc MSVC (cl)."])
+    code, out = _run_tool(cmd, root, 60)
+    return _compiler_result(f, tool, code, out, root)
+
+
+PARSE_TOOLS = {
+    "php": ("php", ["-n", "-l"]),  # -n ignores php.ini and its extensions
+    "ruby": ("ruby", ["--disable-gems", "-c"]),
+    "lua": ("luac", ["-p"]),
+}
+
+
+def check_parse_tool(f: CodeFile, root: Path) -> FileCheck:
+    name, flags = PARSE_TOOLS[f.language]
+    exe = shutil.which(name)
+    tool = " ".join([name, *flags])
+    if not exe:
+        return FileCheck(f.path, "skipped", tool, [f"Không tìm thấy {name} đã cài."])
+    code, out = _run_tool([exe, *flags, str(root / f.path)], root)
+    return _compiler_result(f, tool, code, out, root)
+
+
 NOT_CHECKED = {
-    "typescript": "Cần TypeScript (tsc) để kiểm tra — chưa kiểm tra tự động.",
     "csharp": "Cần dotnet build trong một dự án — chưa kiểm tra tự động.",
 }
 
@@ -238,6 +324,15 @@ def check_files(files: list[CodeFile]) -> list[FileCheck]:
         if java:
             for c in check_java(java, root):
                 results[c.path] = c
+        typescript = [f for f in files if f.language == "typescript"]
+        if typescript:
+            try:
+                for c in check_typescript(typescript, root):
+                    results[c.path] = c
+            except Exception as exc:
+                for f in typescript:
+                    results[f.path] = FileCheck(f.path, "skipped", "tsc --noEmit",
+                                                [f"Bộ kiểm tra gặp lỗi: {type(exc).__name__}"])
         for f in files:
             if f.path in results:
                 continue
@@ -256,6 +351,10 @@ def check_files(files: list[CodeFile]) -> list[FileCheck]:
                     c = check_powershell(f, root)
                 elif f.language == "go":
                     c = check_go(f, root)
+                elif f.language in ("c", "cpp"):
+                    c = check_native(f, root)
+                elif f.language in PARSE_TOOLS:
+                    c = check_parse_tool(f, root)
                 else:
                     c = FileCheck(f.path, "skipped", "", [NOT_CHECKED.get(f.language, "Không kiểm tra tự động loại tệp này.")])
             except Exception as exc:     # một bộ kiểm tra hỏng không được làm hỏng cả bản code

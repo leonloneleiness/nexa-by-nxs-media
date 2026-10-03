@@ -72,9 +72,11 @@ class Job:
 
     def snapshot(self) -> dict:
         return {"id": self.id, "prompt": self.prompt, "mode": self.mode, "quality": self.quality, "state": self.state.value,
-                "label": JOB_STATE_LABELS_VI[self.state], "progress": round(self.progress, 3), "message": self.message,
+                "label": "Cần hoàn thiện" if self.error_code == "quality_gate" and self.project_id else JOB_STATE_LABELS_VI[self.state],
+                "progress": round(self.progress, 3), "message": self.message,
                 "created": self.created, "started": self.started, "finished": self.finished,
                 "project_id": self.project_id, "error": self.error, "error_code": self.error_code,
+                "reference_based": bool(self.options.get("reference_images")),
                 "questions": list(self.questions), "warnings": list(self.warnings)[-6:], "cached": self.cached,
                 "quality_score": self.quality_score, "quality_status": self.quality_status,
                 "stage_times": dict(self.stage_times), "terminal": self.terminal,

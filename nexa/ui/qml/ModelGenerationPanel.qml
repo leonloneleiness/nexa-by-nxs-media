@@ -18,6 +18,7 @@ TacCard {
     property var job: nexa3d.activeJob
     property string mode: "auto"
     property bool hq: false
+    property string referenceMethod: "auto"
     property var references: ({})
     readonly property int referenceCount: Object.keys(references).length
     function setReference(view, url) {
@@ -41,17 +42,23 @@ TacCard {
         NumberAnimation { to: 1; duration: 520 }
     }
     readonly property bool hasJob: !!(job && job.id !== undefined)
+    readonly property bool needsPolish: hasJob && job.error_code === "quality_gate" && !!job.project_id
     readonly property var stateColor: ({"ready": S.ok, "failed": S.hazard, "cancelled": S.iceDim, "needs_input": S.amber})
-    readonly property color jobTone: hasJob ? (stateColor[job.state] || S.ice) : S.ice
+    readonly property color jobTone: needsPolish ? S.amber : hasJob ? (stateColor[job.state] || S.ice) : S.ice
     // giai đoạn pipeline ↔ trạng thái job
-    readonly property var stages: [
+    readonly property var stages: ([
         {"k": "PHÂN TÍCH", "s": ["queued", "planning"]},
         {"k": "DỰNG HÌNH", "s": ["generating_reference", "generating_geometry", "texturing"]},
         {"k": "TÁCH BỘ PHẬN", "s": ["segmenting"]},
         {"k": "KIỂM TRA", "s": ["validating", "rendering", "reviewing", "refining"]},
         {"k": "TỐI ƯU", "s": ["optimizing"]},
         {"k": "SẴN SÀNG", "s": ["ready"]}
-    ]
+    ]).filter(function(stage) { return !(panel.hasJob && panel.job.reference_based && stage.s[0] === "segmenting") })
+    readonly property int reviewStageIdx: {
+        for (var i = 0; i < stages.length; i++)
+            if (stages[i].s.indexOf("reviewing") >= 0) return i
+        return 3
+    }
     readonly property int stageIdx: {
         if (!hasJob) return -1
         for (var i = 0; i < stages.length; i++)
@@ -59,7 +66,7 @@ TacCard {
         return -1
     }
     // với failed/cancelled/needs_input: giữ vị trí theo tiến độ để biết dừng ở giai đoạn nào
-    readonly property int reachedIdx: stageIdx >= 0 ? stageIdx
+    readonly property int reachedIdx: needsPolish ? reviewStageIdx : stageIdx >= 0 ? stageIdx
                                       : hasJob ? Math.min(stages.length - 2, Math.floor((job.progress || 0) * (stages.length - 1))) : -1
 
     headerExtra: [
@@ -105,7 +112,7 @@ TacCard {
                       enabled: (prompt.text.trim().length > 2 || panel.referenceCount > 0) && (!panel.hasJob || panel.job.terminal)
                       onClicked: { if (!enabled) return
                                    if (panel.referenceCount > 0)
-                                       nexa3d.generateFromReferences(prompt.text, panel.hq ? "high" : "standard", panel.references)
+                                       nexa3d.generateFromReferences(prompt.text, panel.hq ? "high" : "standard", panel.references, panel.referenceMethod)
                                    else nexa3d.generate(prompt.text, panel.mode, panel.hq ? "high" : "standard") } }
         }
         ColumnLayout {
@@ -144,9 +151,20 @@ TacCard {
             }
             RowLayout {
                 visible: panel.referenceCount > 0; Layout.fillWidth: true
-                Text { Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.textSecondary; font.pixelSize: 11
-                    text: "Ảnh được gửi tới dịch vụ AI khi bấm Tạo. Kết quả được đối chiếu từng góc trước khi mở." }
+                TacTool { small: true; text: "Ảnh → 3D"; on: panel.referenceMethod === "auto"
+                    onClicked: panel.referenceMethod = "auto" }
+                TacTool { small: true; text: "CAD từ ảnh gốc"; on: panel.referenceMethod === "cad"
+                    onClicked: panel.referenceMethod = "cad"
+                    tip: "Dựng hình học từ ảnh gốc, không qua tách nền; vẫn là bản ước lượng." }
+                Item { Layout.fillWidth: true }
                 TacTool { small: true; text: "Chất lượng cao"; on: panel.hq; onClicked: panel.hq = !panel.hq }
+            }
+            RowLayout {
+                visible: panel.referenceCount > 0; Layout.fillWidth: true
+                Text { Layout.fillWidth: true; wrapMode: Text.Wrap; color: Theme.textSecondary; font.pixelSize: 11
+                    text: panel.referenceMethod === "cad"
+                        ? "AI đọc ảnh gốc để dựng kết cấu. Chi tiết hoa, chữ và vật liệu có thể chưa giống; kết quả vẫn được kiểm tra."
+                        : "Ảnh được gửi tới dịch vụ AI khi bấm Tạo. Kết quả được đối chiếu từng góc trước khi mở." }
             }
         }
         Flow {
@@ -169,6 +187,15 @@ TacCard {
         }
 
         // ---------- job đang chạy: pipeline giai đoạn ----------
+        ColumnLayout {
+            visible: panel.hasJob && panel.job.error_code === "reference_mask"
+            Layout.fillWidth: true; spacing: 6
+            Text { Layout.fillWidth: true; wrapMode: Text.Wrap; color: S.amber; font.pixelSize: 12
+                text: "Ảnh tách nền chưa giữ đủ vật thể. Bạn có thể thử dựng CAD từ bộ ảnh gốc hiện tại, hoặc thay ảnh đã tách nền đầy đủ." }
+            TacTool { text: "Thử CAD từ ảnh gốc"; tint: S.amber
+                enabled: panel.referenceCount > 0 && panel.job.terminal
+                onClicked: { panel.referenceMethod = "cad"; go.clicked() } }
+        }
         Item {
             visible: panel.hasJob
             Layout.fillWidth: true
@@ -190,7 +217,7 @@ TacCard {
                     Text { visible: !panel.job.terminal; text: Math.round((panel.job.progress || 0) * 100) + "%"
                            color: S.ice; font.family: panel.tacFont; font.pixelSize: 22 }
                     Text { visible: !!panel.job.terminal
-                           text: ({"ready": "HOÀN TẤT", "failed": "THẤT BẠI", "cancelled": "ĐÃ HỦY", "needs_input": "CẦN THÊM THÔNG TIN"}[panel.job.state] || "")
+                           text: panel.needsPolish ? "BẢN NHÁP" : ({"ready": "HOÀN TẤT", "failed": "THẤT BẠI", "cancelled": "ĐÃ HỦY", "needs_input": "CẦN THÊM THÔNG TIN"}[panel.job.state] || "")
                            color: panel.jobTone; font.family: panel.tacFont; font.pixelSize: 13; font.letterSpacing: 2 }
                     TacTool { visible: !panel.job.terminal; small: true; text: "Hủy"; glyphCode: 0xE711; tint: S.hazard
                               onClicked: nexa3d.cancelJob(panel.job.id) }

@@ -10,10 +10,11 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
+from nexa.core.safety import Cancelled
 from nexa.three_d.generation.assembly import AssemblyBuilder, BuiltAssembly
 from nexa.three_d.generation.templates import get_template
 from nexa.three_d.geometry import dsl as D
@@ -135,7 +136,8 @@ def _clean_part(raw: Any, index: int) -> dict:
     return part
 
 
-def compile_dsl_parts(spec: ModelSpec, dsl_parts: list[dict], tolerant: bool = False) -> DslBuild:
+def compile_dsl_parts(spec: ModelSpec, dsl_parts: list[dict], tolerant: bool = False,
+                      check: Callable[[], None] | None = None) -> DslBuild:
     """Dựng assembly từ danh sách bộ phận DSL của AI.
 
     tolerant=True: bộ phận lỗi được ghi vào `errors` và bỏ qua (để gửi lại cho Gemini sửa) thay vì hủy cả mô hình.
@@ -148,11 +150,13 @@ def compile_dsl_parts(spec: ModelSpec, dsl_parts: list[dict], tolerant: bool = F
     mats = M.object_library(M.color_from_name(style.get("primary_color"), "#c4c8cc"),
                             M.color_from_name(style.get("secondary_color"), "#2b2e33"),
                             M.color_from_name(style.get("accent_color"), "#22d3ee"))
-    budget = D._Budget()
+    budget = D._Budget(check=check)
     errors: dict[str, str] = {}
     items: list[tuple[str, dict, Any]] = []
     seen: set[str] = set()
     for i, raw in enumerate(dsl_parts):
+        if check:
+            check()
         rid = str(raw.get("id")) if isinstance(raw, dict) and raw.get("id") else f"part_{i + 1}"
         try:
             part = _clean_part(raw, i)
@@ -163,14 +167,19 @@ def compile_dsl_parts(spec: ModelSpec, dsl_parts: list[dict], tolerant: bool = F
             if not isinstance(raw.get("shape"), dict):
                 raise D.DslError("thiếu 'shape' (cây DSL)")
             pid = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in part["id"])[:40] or f"part_{i + 1}"
+            base, suffix = pid, 2
             while pid in seen:
-                pid = (pid[:36] + f"_{len(seen)}")
+                tail = f"_{suffix}"
+                pid = base[:40 - len(tail)] + tail
+                suffix += 1
             solid = D.compile_node(raw["shape"], 0, budget)
             if solid.is_empty:
                 raise D.DslError("hình rỗng (phép trừ/giao xóa hết khối?)")
             lo, hi = solid.bounds()
             if not (np.isfinite(lo).all() and np.isfinite(hi).all()):
                 raise D.DslError("tọa độ không hữu hạn")
+        except Cancelled:
+            raise
         except D.DslError as exc:
             if not tolerant:
                 raise
@@ -195,6 +204,8 @@ def compile_dsl_parts(spec: ModelSpec, dsl_parts: list[dict], tolerant: bool = F
     ids = {pid for pid, _, _ in items}
     orig_ids = {str(p.get("id")): pid for pid, p, _ in items}
     for pid, part, solid in items:
+        if check:
+            check()
         solid = solid.translate(*shift)
         mat = part.get("material") if part.get("material") in mats else "paint_primary"
         if part.get("color"):

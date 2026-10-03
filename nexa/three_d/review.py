@@ -66,10 +66,19 @@ def review_renders(sheet_jpeg: bytes, spec: ModelSpec, checklist: list[Checklist
             "view": {"type": "string", "enum": list(spec.reference_images)},
             "shape_score": {"type": "number", "minimum": 0, "maximum": 10}}, "required": ["view", "shape_score"]}}
         schema["required"].append("reference_views")
+        for key in ("object_only", "structure_preserved", "text_preserved"):
+            schema["properties"][key] = {"type": "boolean"}
+            schema["required"].append(key)
         prompt += ("Ảnh 1 là render cần chấm. Đối chiếu TỪNG góc render với ảnh tham chiếu cùng góc: "
                    "đường bao, tỷ lệ chiều dài/rộng/cao, vị trí lỗ, phần nhô ra, chi tiết bất đối xứng và màu. "
                    "reference_views: chấm riêng mỗi góc đã cung cấp. Không cho điểm cao chỉ vì cùng loại vật thể. "
                    "Sai đường bao hoặc mất bộ phận đặc trưng là lỗi major. Ghi rõ góc, chi tiết sai và cách sửa trong issues.")
+        prompt += ("\nBẮT BUỘC kiểm tra độc lập: object_only=false nếu rèm, bục, ghế, tường hoặc nền phòng "
+                   "bị dựng thành bộ phận. structure_preserved=false nếu các thanh mảnh, nhịp cầu, lỗ hoặc khoảng "
+                   "gãy chủ đích bị nối kín, mất, cong hoặc sai bố cục. text_preserved=false nếu biển tên nhận diện "
+                   "vật thể bị chữ giả/méo/không đọc được; chỉ true nếu đọc đúng hoặc vật thể không có chữ. "
+                   "Các lỗi trên là major, KHÔNG phải minor dù màu và loại vật thể đúng. Đừng nhầm rèm xanh với "
+                   "cỏ trên sa bàn. Phân biệt hình chụp chi tiết với góc toàn cảnh khi đối chiếu.")
     try:
         kw = dict(system=SYSTEM, images=[(sheet_jpeg, "image/jpeg"), *spec.reference_images.values()], max_tokens=1536, temperature=0.1)
         try:
@@ -113,6 +122,7 @@ def sanitize_review(data: Any) -> dict:
             except (TypeError, ValueError):
                 pass
     return {"ok": True, "category_match": bool(data.get("category_match", False)), "reference_views": view_scores,
+            **{k: data.get(k) is True for k in ("object_only", "structure_preserved", "text_preserved")},
             "detected_object": str(data.get("detected_object", ""))[:80], "shape_score": score("shape_score"),
             "appearance_score": score("appearance_score"), "parts_visible": visible, "issues": issues,
             "summary": str(data.get("summary", ""))[:400]}

@@ -72,6 +72,7 @@ class CodeService:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._token: Any = None
+        self._publish_committed = False
         self._job: dict = {"state": "idle", "kind": "", "message": "", "progress": 0.0, "started": 0.0}
         self.current: CodeResult | None = None
         self.locked = False
@@ -110,6 +111,8 @@ class CodeService:
 
     def _set_job(self, **kw: Any) -> None:
         with self._lock:
+            if kw.get("state") in ("done", "failed", "cancelled"):
+                kw["finished"] = time.time()
             self._job.update(kw)
             snap = dict(self._job)
         self._notify("code_job", snap)
@@ -124,8 +127,9 @@ class CodeService:
                 return False, "Em đang bận một việc code khác — anh đợi xong hoặc bấm Hủy."
             token = self.token_factory()
             self._token = token
+            self._publish_committed = False
             self._job = {"state": "running", "kind": kind, "message": message, "progress": 0.05,
-                         "started": time.time()}
+                         "started": time.time(), "finished": None}
             self._thread = threading.Thread(target=self._run, args=(kind, work, token), name=f"code-{kind}",
                                             daemon=True)
         self._notify("code_job", self.job())
@@ -135,13 +139,13 @@ class CodeService:
     def _run(self, kind: str, work: Callable[[Any], None], token: Any) -> None:
         try:
             work(token)
-            if token.cancelled:
+            if token.cancelled and not self._publish_committed:
                 raise CodeCancelled(getattr(token, "reason", "") or "đã hủy")
             self._set_job(state="done", progress=1.0, message="Xong.")
         except CodeCancelled as exc:
             self._set_job(state="cancelled", message=f"Đã hủy ({exc})." if str(exc) else "Đã hủy.")
         except Exception as exc:  # lỗi Gemini/mạng/khác — báo cho anh, không làm sập NEXA
-            if token.cancelled:
+            if token.cancelled and not self._publish_committed:
                 self._set_job(state="cancelled", message="Đã hủy.")
                 return
             log.exception("Việc code (%s) lỗi", kind)
@@ -153,10 +157,10 @@ class CodeService:
     def cancel(self, reason: str = "Người dùng hủy") -> bool:
         with self._lock:
             tok = self._token if self._thread is not None and self._thread.is_alive() else None
-        if tok is None:
-            return False
-        tok.cancel(reason)
-        return True
+            if tok is None or self._publish_committed or self._job["state"] != "running":
+                return False
+            tok.cancel(reason)
+            return True
 
     def _progress(self, token: Any) -> Callable[[str, float], None]:
         def cb(msg: str, p: float) -> None:
@@ -183,7 +187,7 @@ class CodeService:
 
         def work(token: Any) -> None:
             res = self.generator.generate(prompt, language, token, self._progress(token))
-            self._publish(res, announce=True)
+            self._publish(res, announce=True, token=token)
         self._notify("code_open", {"prompt": prompt, "language": language})
         return self._start("generate", "Gemini đang viết code…", work)
 
@@ -210,7 +214,7 @@ class CodeService:
 
         def work(token: Any) -> None:
             res = self.generator.refine(base, instruction, token, run_out, self._progress(token))
-            self._publish(res, announce=True)
+            self._publish(res, announce=True, token=token)
         return self._start("refine", "Gemini đang chỉnh sửa code…", work)
 
     # ------------------------------------------------------------ chạy thử NGAY TRONG NEXA (live_run)
@@ -466,7 +470,15 @@ class CodeService:
         self._notify("code_toast", {"text": text, "error": code != 0})
         self._say(text, spoken)
 
-    def _publish(self, res: CodeResult, announce: bool) -> None:
+    def _publish(self, res: CodeResult, announce: bool, token: Any = None) -> None:
+        # Linearization point shared with cancel(). Once committed, publication
+        # wins even if an externally owned token is cancelled during callbacks.
+        # Do not hold the lock across disk I/O or reentrant UI callbacks.
+        if token is not None:
+            with self._lock:
+                if token.cancelled:
+                    raise CodeCancelled(getattr(token, "reason", "") or "đã hủy")
+                self._publish_committed = True
         self.current = res
         self._store(res)
         self._notify("code_result", {"id": res.id})
