@@ -18,11 +18,24 @@ workflows:
       - name: Compile device application without signing
         script: flutter build ios --release --no-codesign
       - name: Package IPA for re-signing on Windows
-        script: python3 tool/package_sideload.py
+        script: |
+          set -eu
+          : "${CM_BUILD_DIR:?Missing clone directory}"
+          : "${CM_EXPORT_DIR:?Missing artifact export directory}"
+          OUTPUT="$CM_BUILD_DIR/mobile/build/sideload/NEXA-unsigned.ipa"
+          python3 "$CM_BUILD_DIR/mobile/tool/package_sideload.py" \
+            --app "$CM_BUILD_DIR/mobile/build/ios/iphoneos/Runner.app" \
+            --output "$OUTPUT"
+          test -s "$OUTPUT"
+          test -s "$OUTPUT.sha256"
+          test -s "$OUTPUT.json"
+          mkdir -p "$CM_EXPORT_DIR"
+          cp "$OUTPUT" "$OUTPUT.sha256" "$OUTPUT.json" "$CM_EXPORT_DIR/"
+          ls -lh "$OUTPUT" "$CM_EXPORT_DIR/NEXA-unsigned.ipa"
     artifacts:
-      - mobile/build/sideload/*.ipa
-      - mobile/build/sideload/*.sha256
-      - mobile/build/sideload/*.json
+      - $CM_BUILD_DIR/mobile/build/sideload/*.ipa
+      - $CM_BUILD_DIR/mobile/build/sideload/*.sha256
+      - $CM_BUILD_DIR/mobile/build/sideload/*.json
       - /tmp/xcodebuild_logs/*.log
   nexa-ios-unsigned:
     name: NEXA iOS compilation check
