@@ -31,6 +31,7 @@ mediapipe>=1.0,<1.1
 
 # Gemini — Google Gen AI SDK chính thức (2.25.0)
 google-genai>=2.20,<3
+openai>=1.68,<3
 
 # Điều khiển Windows
 pywin32>=306

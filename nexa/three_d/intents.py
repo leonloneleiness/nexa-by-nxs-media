@@ -79,6 +79,8 @@ def route_3d(orig: str, fold_text: str, viewer_active: bool,
     if not viewer_active:
         return None
     # ----- lệnh viewer (chỉ khi đang mở) -----
+    if re.fullmatch(r"(?:phong to|zoom|zoom in|to len) (?:cai nay|bo phan nay|chi tiet nay|this)(?: len)?", u):
+        return "basic", [("focus_3d_part", {"part": "bộ phận này"})], "", None
     if re.fullmatch(r"(tach|thao|bung|mo)( roi)?( cac| tat ca| toan bo)?( bo phan| chi tiet| linh kien| mo hinh| assembly)?"
                     r"( ra)?( di| giup (anh|toi))?|exploded? view|che do tach|xem (dang|kieu) tach", u) and \
             not re.search(r"\btach rieng\b", u) and (re.search(r"\b(tach|bung|thao|exploded?)\b", u)):

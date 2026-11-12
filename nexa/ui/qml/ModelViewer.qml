@@ -10,6 +10,27 @@ import Nexa3D 1.0
 // định; QML chỉ hiển thị và nội suy mượt tới camera đích ở tốc độ khung hình màn hình.
 Rectangle {
     id: root
+    Connections {
+        target: nexa3d
+        function onPointerRequested(x, y, at, projectId) {
+            if (!root.visible) return
+            var hit = view.pick(x * view.width, y * view.height)
+            nexa3d.selectPointedPart(hit.objectHit ? hit.objectHit.objectName : "", at, projectId)
+            handPointer.x = x * view.width - 7
+            handPointer.y = y * view.height - 7
+            pointerTimer.restart()
+        }
+    }
+    Rectangle {
+        id: handPointer
+        parent: view
+        width: 14; height: 14; radius: 7
+        color: "transparent"; border.color: Theme.accent; border.width: 2
+        visible: pointerTimer.running
+        z: 100
+    }
+    Timer { id: pointerTimer; interval: 350 }
+    function commandProductPanel(action, panel) { hud.commandProductPanel(action, panel) }
     focus: true
     gradient: Gradient {
         GradientStop { position: 0.0; color: Theme.surface }

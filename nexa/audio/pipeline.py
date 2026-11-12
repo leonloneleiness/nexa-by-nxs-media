@@ -446,16 +446,19 @@ class AudioPipeline:
             req = self._listen_request
             if req is not None and self.segmenter.state == "idle":
                 self._listen_request = None
-                self.segmenter.start(now)
+                self.segmenter.start(t_cb)
         if self.segmenter.state == "idle":
             return
-        result = self.segmenter.process(x, now)
+        # Use device callback time, not worker arrival time, to align with camera frames.
+        result = self.segmenter.process(x, t_cb)
         if result is None:
             return
         kind, audio = result
         if kind == "speech_start" and self.on_speech_start:
+            self.speech_started_at = t_cb - self.segmenter._voiced_ms / 1000.0
             self.on_speech_start()
         elif kind == "utterance" and self.on_utterance:
+            self.speech_ended_at = self.segmenter._last_voice
             self.on_utterance(audio)
         elif kind == "timeout" and self.on_listen_timeout:
             self.on_listen_timeout()

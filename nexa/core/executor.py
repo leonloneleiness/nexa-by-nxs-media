@@ -61,6 +61,7 @@ class Executor:
         self._owner: str | None = None
         self._owner_lock = threading.Lock()
         self._busy = threading.Event()
+        self.multimodal = None
 
     # ----- vòng đời -----
     def start(self) -> None:
@@ -249,11 +250,26 @@ class Executor:
                 future.set_result(self._finish(call, ToolResult.failure("Quyền điều khiển đang tạm dừng.", "control_paused"), cache=False))
                 continue
             spec = self.registry.get(call.name)
+            if call.target_id and "3d" in call.name:
+                svc = getattr(self.services, "three_d", None)
+                project = getattr(getattr(svc, "viewer", None), "project", None)
+                if project is None or project.id != call.target_id:
+                    future.set_result(self._finish(call, ToolResult.failure(
+                        "Mô hình đã thay đổi sau khi nói; anh chọn lại đối tượng nhé.", "target_changed"), cache=False))
+                    continue
             # Quyền điều khiển có thể đã đổi chủ trong lúc thao tác nằm trong hàng đợi.
             if spec.needs_control and self.control_owner not in (self.owner_key(call), None):
                 future.set_result(self._finish(call, ToolResult.failure("Quyền điều khiển đang bận.", "busy"), cache=False))
                 continue
             self._busy.set()
+            if self.multimodal is not None:
+                self.multimodal.execution_lock.acquire()
+                blocked = self.multimodal.guard(call)
+                if blocked is not None:
+                    self.multimodal.execution_lock.release()
+                    self._busy.clear()
+                    future.set_result(self._finish(call, blocked, cache=True))
+                    continue
             self._emit(call, "running", spec.title)
             started = time.monotonic()
             # cửa sổ công cụ này mở ra sẽ được xếp CẠNH NEXA (nexa/desktop/side_by_side.py), không che NEXA
@@ -282,6 +298,9 @@ class Executor:
                     log.debug("side_by_side.after lỗi", exc_info=True)
             if ctx.token.cancelled and result.ok:
                 result.message += " (tác vụ đã bị hủy sau bước này)"
+            if self.multimodal is not None:
+                self.multimodal.commit(call, result)
+                self.multimodal.execution_lock.release()
             future.set_result(self._finish(call, result, cache=True))
 
     def _cached(self, call: ToolCall) -> ToolResult | None:

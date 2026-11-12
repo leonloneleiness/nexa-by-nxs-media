@@ -25,6 +25,16 @@ log = get_logger("stt.bias")
 
 BIAS_MODES = ("none", "static", "context")
 
+MODE_TERMS = {
+    "3d": ("rotate", "zoom in", "zoom out", "reset view", "model", "bộ phận", "phóng to", "thu nhỏ"),
+    "code": ("Python", "JavaScript", "TypeScript", "debug", "terminal", "run tests", "save code"),
+    "system": ("Chrome", "pause", "resume", "scroll", "cửa sổ"),
+}
+
+
+def interaction_terms(mode: str, terms: Sequence[str] = ()) -> tuple[str, ...]:
+    return tuple(merge_terms(MODE_TERMS.get(mode, ()), terms, 30))
+
 # Tên tiến trình (chữ thường) → tên đưa vào gợi ý. Chỉ các ứng dụng hay được gọi tên khi ra lệnh.
 PROCESS_TERMS: dict[str, tuple[str, ...]] = {
     "code.exe": ("VS Code",), "chrome.exe": ("Chrome",), "msedge.exe": ("Edge",), "firefox.exe": ("Firefox",),

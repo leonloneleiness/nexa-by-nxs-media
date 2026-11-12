@@ -3,9 +3,9 @@
   .venv\\Scripts\\python -m pip install -r requirements-dev.txt
   .venv\\Scripts\\python scripts\\build_exe.py
 
-Kết quả: dist\\NEXA\\NEXA.exe (+ thư viện). KHÔNG đóng gói .env, config/settings.yaml, logs hay model
-lớn; model được tải vào dist\\NEXA\\models ở lần chạy đầu (hoặc chép thư mục models\\ vào cạnh NEXA.exe).
-Bản EXE phải được build và kiểm thử trên Windows; NEXA không coi ZIP mã nguồn là EXE đã kiểm chứng.
+Kết quả: dist\\NEXA\\NEXA.exe (+ toàn bộ thư viện). Đây là bản one-folder, không được phát hành
+riêng NEXA.exe. Bước prepare_windows_release.py sẽ chép model, cấu hình dịch vụ và chạy preflight
+cuối trước khi tạo installer. Bản EXE phải được build và kiểm thử trên Windows.
 """
 from __future__ import annotations
 
@@ -70,6 +70,14 @@ def main() -> int:
         (ROOT / ".env.example", "."),
         (ROOT / "browser_bridge", "browser_bridge"),
     ]
+    # Freeze every application module, including modules loaded by name. Keep
+    # the inventory inside the distribution so the EXE can verify all of them.
+    modules = sorted({".".join(p.relative_to(ROOT).with_suffix("").parts).removesuffix(".__init__")
+                      for p in (ROOT / "nexa").rglob("*.py")})
+    manifest = ROOT / "build" / "module-manifest.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps(modules, indent=2), encoding="utf-8")
+    datas.append((manifest, "."))
     args = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--name", "NEXA", "--windowed",
             "--distpath", str(dist), "--workpath", str(ROOT / "build"), "--specpath", str(ROOT / "build")]
     icon = ROOT / "assets" / "branding" / "nexa-icon.ico"
@@ -80,9 +88,15 @@ def main() -> int:
     for pkg in ("mediapipe", "faster_whisper", "ctranslate2", "winrt", "pywinauto", "comtypes", "edge_tts",
                 "manifold3d", "fast_simplification", "gradio_client", "pygments", "pyflakes"):
         args += ["--collect-all", pkg]
+    from packaging.requirements import Requirement
+    requirements = (ROOT / 'requirements.txt').read_text(encoding='utf-8').splitlines()
+    for line in [*requirements, 'opencv-contrib-python']:
+        line = line.strip()
+        if line and not line.startswith('#'):
+            args += ['--copy-metadata', Requirement(line).name]
     # Mô hình 3D: Qt Quick 3D (+ Helpers, AssetUtils/RuntimeLoader) và các module nạp động trong nexa.three_d
     for mod in ("win32com.client", "pythoncom", "pycaw.pycaw", "miniaudio", "send2trash", "mss",
-                "PySide6.QtQuick3D", "scipy.interpolate", *THREE_D_MODULES, *CODE_MODULES):
+                "PySide6.QtQuick3D", "scipy.interpolate", *modules, *THREE_D_MODULES, *CODE_MODULES):
         args += ["--hidden-import", mod]
     # cuBLAS (gói pip nvidia-cublas-cu12) để nhận dạng chạy trên GPU NVIDIA. Đặt ở <_internal>/nvidia/<gói>/bin —
     # đúng chỗ nexa.audio.stt._add_cuda_dll_dirs() tìm. Không có gói này thì bản EXE vẫn chạy, chỉ dùng CPU.
@@ -90,6 +104,9 @@ def main() -> int:
     for dll in sorted(site.glob("nvidia/*/bin/*.dll")):
         args += ["--add-binary", f"{dll}{SEP}{dll.parent.relative_to(site).as_posix()}"]
     args.append(str(ROOT / "main.py"))
+    native = ROOT / "nexa/native/nexa_geometry.dll"
+    if native.is_file():
+        args[-1:-1] = ["--add-binary", f"{native}{SEP}nexa/native"]
     print("Chạy:", " ".join(args[:8]), "…")
     code = subprocess.call(args, cwd=str(ROOT), env=build_environment())
     if code != 0:
@@ -111,7 +128,7 @@ def main() -> int:
             bad.unlink()
     report = out / "installation-check.json"
     check = subprocess.run([str(out / "NEXA.exe"), "--nexa-check-install", str(report.resolve())],
-                           timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                           timeout=180, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                            env=build_environment())
     if check.returncode or not report.exists():
         print("Bản EXE chưa vượt kiểm tra module/template; xem", report)
@@ -120,8 +137,12 @@ def main() -> int:
     if not result.get("ok"):
         print("Lỗi kiểm tra EXE:", result.get("errors"))
         return 6
+    for required in (out / "_internal", out / "_internal" / "assets", out / "config", out / ".env.example"):
+        if not required.exists():
+            print("Thiếu thành phần runtime:", required)
+            return 7
     print(f"Xong: {out / 'NEXA.exe'}")
-    print("Lưu ý: bridge YouTube trong bản EXE vẫn cần Python để chạy native_host.py (xem browser_bridge/README.md).")
+    print("Bước tiếp theo: đóng gói NexaBridge.exe và chạy prepare_windows_release.py để kèm model offline.")
     return 0
 
 

@@ -69,6 +69,7 @@ class Observation:
     scale: float = 0.1
     snap_ready: bool = False
     snap_released: bool = False
+    pointer: tuple[float, float] | None = None
 
 
 @dataclass

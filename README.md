@@ -7,7 +7,7 @@
 
 Một sản phẩm của **NXS MEDIA** — được phát triển bởi **Nguyễn Xuân Sơn**.
 
-**Windows 10/11 64-bit · Bộ cài NEXA-Setup.exe · Phiên bản ứng dụng 1.7.1**
+**Windows 10/11 64-bit · Bộ cài NEXA-Setup.exe · Phiên bản ứng dụng 1.7.2**
 
 </div>
 
@@ -26,6 +26,11 @@ NEXA kết hợp xử lý cục bộ với AI trực tuyến: nhận dạng gi�
 Bản phát hành Windows được đóng gói trong **một file duy nhất**:
 
 **[NEXA-Setup.exe](release/NEXA-Setup.exe)** — khoảng **2,91 GB**.
+
+Bản rà soát ngày **05/10/2026**: thư mục chỉ gồm file chia sẻ nằm tại
+`release/final-20261005/publish`. Có checksum SHA-256 và hướng dẫn tiếng Việt.
+Xem [báo cáo kiểm thử phát hành](docs/release_audit_2026-10-05.md) để biết kết quả
+kiểm tra module, cài đặt, CPU/GPU và phạm vi chưa kiểm chứng trên máy khác.
 
 Liên kết trên trỏ đến file trong thư mục dự án. Khi chia sẻ công khai, nhà phát hành cần upload file này lên Google Drive và cung cấp đường dẫn tải; README hiện chưa có link Drive công khai.
 
@@ -192,7 +197,7 @@ Logo NEXA sử dụng chữ **N** từ ba phần nối nhau, kết hợp **xanh 
 
 ## Trạng thái bản phát hành
 
-Bộ cài được tạo và kiểm tra ngày **03/10/2026**. Phiên bản ứng dụng và installer hiện ghi **1.7.1**; các nhãn phiên bản trong tài liệu phát triển cũ không phải số phiên bản bộ cài mới.
+Bộ cài được tạo và kiểm tra ngày **05/10/2026**. Phiên bản ứng dụng và installer hiện ghi **1.7.2**; các nhãn phiên bản trong tài liệu phát triển cũ không phải số phiên bản bộ cài mới.
 
 | Hạng mục | Kết quả đã ghi nhận |
 | --- | --- |
@@ -228,6 +233,8 @@ Kết quả trên xác nhận những bước đã kiểm tra, không có nghĩa
 Người sử dụng bộ cài không cần thực hiện phần này. Để chạy từ mã nguồn, dùng Python 3.11 64-bit, chạy `setup_windows.bat`, cấu hình AI cục bộ rồi mở `start_windows.bat`. Bản mã nguồn mẫu không chứa API thật; việc cấu hình API sẵn chỉ áp dụng cho bộ cài chia sẻ đã được chuẩn bị.
 
 Các thành phần chính: Python, PySide6/Qt Quick, faster-whisper, MediaPipe, Google Gen AI SDK và các công cụ Windows. Code nằm trong `nexa`, giao diện QML trong `nexa/ui/qml`, tài nguyên trong `assets`, script phát triển/đóng gói trong `scripts`.
+
+NEXA cũng có workspace **EDU** với mô phỏng STEM và phòng thí nghiệm ảo chạy cục bộ. Xem [tài liệu NEXA Edu](docs/education.md).
 
 | Tài liệu | Nội dung |
 | --- | --- |

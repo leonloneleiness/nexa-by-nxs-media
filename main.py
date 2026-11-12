@@ -4,9 +4,9 @@ import sys
 from nexa.desktop.win32api import set_dpi_awareness
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "--nexa-check-install":
+    if len(sys.argv) == 3 and sys.argv[1] in ("--nexa-check-install", "--nexa-check-runtime"):
         from nexa.installation_check import main as check_install
-        sys.exit(check_install(sys.argv[2]))
+        sys.exit(check_install(sys.argv[2], runtime=sys.argv[1] == "--nexa-check-runtime"))
     if len(sys.argv) > 2 and sys.argv[1] == "--nexa-console-run":
         # cửa sổ "chạy thử tệp" do NEXA mở (nexa/code/console_run.py) — không nạp giao diện
         from nexa.code.console_run import console_main
@@ -36,6 +36,8 @@ if __name__ == "__main__":
 
         sys.exit(0 if uninstall_service() else 1)
     # Phải đặt DPI awareness TRƯỚC khi nạp Qt/pyautogui để mọi tọa độ Win32 là pixel vật lý.
+    # Qt's Windows UI uses STA COM; let pywinauto/comtypes use that same apartment.
+    sys.coinit_flags = 2
     set_dpi_awareness()
     from nexa.app import run
 

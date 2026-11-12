@@ -18,6 +18,7 @@ TacCard {
             Repeater {
                 model: [
                     {name: "Google Gemini", detail: (root.status.ai && root.status.ai.model) || "Trí tuệ & hội thoại", state: root.status.ai && root.status.ai.ok ? "Sẵn sàng" : "Chưa sẵn sàng", ok: !!(root.status.ai && root.status.ai.ok)},
+                    {name: "Sinh code", detail: (root.status.code && root.status.code.reason) || "Gemini viết và kiểm tra code", state: root.status.code && root.status.code.ready ? "Sẵn sàng" : "Chưa sẵn sàng", ok: !!(root.status.code && root.status.code.ready)},
                     {name: "Giọng nói / TTS", detail: (root.status.tts && root.status.tts.backend) || "Chưa chọn backend", state: root.status.tts && root.status.tts.backend ? "Đang dùng" : "Chờ", ok: !!(root.status.tts && root.status.tts.backend)},
                     {name: "Whisper / STT", detail: (root.status.stt && root.status.stt.model) || "Nhận dạng cục bộ", state: root.status.stt && root.status.stt.ready ? "Đã nạp" : "Chưa nạp", ok: !!(root.status.stt && root.status.stt.ready)},
                     {name: root.provider.name && root.provider.name !== "none" ? root.provider.name : "3D Cloud", detail: "API tạo mô hình 3D", state: root.provider.ok ? "Đã cấu hình" : "Chưa cấu hình", ok: !!root.provider.ok},

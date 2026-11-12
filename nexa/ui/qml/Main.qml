@@ -36,12 +36,14 @@ ApplicationWindow {
     readonly property color panelBorder: Theme.border
     readonly property color textDim: Theme.textSecondary
     property var savedGeometry: null
+    property string pendingProductPanel: ""
     // Trình xem 3D mở SONG SONG với giao diện NEXA (cột phải), không che NEXA.
     readonly property bool viewer3dOpen: nexa3d.viewerOpen
+    readonly property bool educationOpen: nexaEdu.open
     // Sinh code cũng mở SONG SONG (cột phải) như trình xem 3D; đang mở code thì trình xem 3D nhường chỗ.
     readonly property bool codeShown: nexaCode.panelOpen && !nexa.compact
     readonly property bool viewerShown: viewer3dOpen && !nexa.compact && !codeShown
-    readonly property bool sideShown: viewerShown || codeShown
+    readonly property bool sideShown: viewerShown || codeShown || educationOpen
     // cột NEXA khi có bảng bên phải: đủ cho quả cầu + hội thoại, phần còn lại cho bảng (≥ bề ngang iPad mini khi đủ chỗ)
     readonly property real sideNexaWidth: Math.max(360, Math.min(520, win.width * 0.32))
     // Cửa sổ hẹp (NEXA xếp cạnh ứng dụng vừa mở — nexa/desktop/side_by_side.py): quả cầu trên, hội thoại dưới.
@@ -82,6 +84,22 @@ ApplicationWindow {
     }
     Connections {
         target: nexa
+        function onCommandNavigation(action, panel) {
+            if (action === "compact") { win.enterCompact(panel === "on"); return }
+            var opened = action === "open"
+            if (panel === "settings") { if (opened) settingsPopup.open(); else settingsPopup.close() }
+            else if (panel === "gestures") gesturePanel.visible = opened
+            else if (panel === "history") {
+                win.historyOpen = opened
+                win.historyMode = opened ? 2 : 1
+            } else if (panel === "build" || panel === "media") {
+                win.pendingProductPanel = opened ? panel : ""
+                if (viewer3d.item) {
+                    viewer3d.item.commandProductPanel(action, panel)
+                    win.pendingProductPanel = ""
+                }
+            }
+        }
         function onToast(text, isError) { toastBox.show(text, isError) }
         // Vỗ tay đánh thức sau lúc vắng: đưa NEXA lên trước để chào anh.
         function onRaiseWindow() {
@@ -94,6 +112,7 @@ ApplicationWindow {
         if (nexa.smokeOpen === "settings") settingsPopup.open()
         else if (nexa.smokeOpen === "gestures") gesturePanel.visible = true
         else if (nexa.smokeOpen === "3d") nexa3d.workspace = true
+        else if (nexa.smokeOpen === "edu") nexaEdu.open = true
         else if (nexa.smokeOpen === "code") nexaCode.openPanel()
     }
 
@@ -609,6 +628,8 @@ ApplicationWindow {
                 onClicked: { if (nexaCode.panelOpen) nexaCode.closePanel(); if (win.viewer3dOpen) nexa3d.closeViewer(); nexa3d.workspace = false } }
             TacButton { caption: "3D"; glyphCode: 0xF158; showCaption: win.width >= 760; active: nexa3d.workspace || win.viewerShown
                 onClicked: { if (nexaCode.panelOpen) nexaCode.closePanel(); nexa3d.workspace = true } }
+            TacButton { caption: "EDU"; glyphCode: 0xE7BE; showCaption: win.width >= 760; active: nexaEdu.open
+                onClicked: { if (nexaCode.panelOpen) nexaCode.closePanel(); if (nexa3d.viewerOpen) nexa3d.closeViewer(); nexa3d.workspace = false; nexaEdu.open = true } }
             TacButton { caption: "CODE"; glyphCode: 0xE943; active: win.codeShown; onClicked: nexaCode.openPanel() }
             TacButton { caption: "CỬ CHỈ"; glyphCode: 0xE815; showCaption: win.width >= 1500; active: gesturePanel.visible
                 onClicked: gesturePanel.visible = !gesturePanel.visible }
@@ -638,6 +659,9 @@ ApplicationWindow {
                     TacButton { implicitWidth: 40; implicitHeight: 40; showCaption: false; glyphCode: 0xF158
                         active: win.viewerShown || nexa3d.workspace; tip: "Không gian 3D"
                         onClicked: { if (nexaCode.panelOpen) nexaCode.closePanel(); nexa3d.workspace = true } }
+                    TacButton { implicitWidth: 40; implicitHeight: 40; showCaption: false; glyphCode: 0xE7BE
+                        active: nexaEdu.open; tip: "Mô phỏng STEM / Phòng thí nghiệm"
+                        onClicked: { if (nexaCode.panelOpen) nexaCode.closePanel(); nexaEdu.open = true } }
                     TacButton { implicitWidth: 40; implicitHeight: 40; showCaption: false; glyphCode: 0xE943
                         active: win.codeShown; tip: "Không gian Code"; onClicked: nexaCode.openPanel() }
                     TacButton { implicitWidth: 40; implicitHeight: 40; showCaption: false; glyphCode: 0xE8BD
@@ -673,8 +697,20 @@ ApplicationWindow {
                 readonly property bool tight: width < 710
                 readonly property real drawerW: win.sideShown ? 400 : Math.min(width - 24, 400)
 
-                TacFrame { anchors.fill: parent; visible: !win.sideShown; fill: Theme.panelGlass; stroke: Theme.border }
-                Rectangle { visible: !win.sideShown; x: 16; y: 0; width: 72; height: 2; color: Theme.accent; opacity: 0.65 }
+                TacFrame { anchors.fill: parent; visible: !win.sideShown; fill: Theme.panelGlass; stroke: Qt.rgba(win.ice.r, win.ice.g, win.ice.b, 0.34) }
+                Rectangle { visible: !win.sideShown; anchors.fill: parent; color: "transparent"
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: Qt.rgba(win.ice.r, win.ice.g, win.ice.b, 0.035) }
+                        GradientStop { position: 0.48; color: "transparent" }
+                        GradientStop { position: 1.0; color: Qt.rgba(0.02, 0.04, 0.08, 0.28) }
+                    }
+                }
+                Rectangle { visible: !win.sideShown; x: 16; y: 0; width: 112; height: 2; color: win.stateAccent; opacity: 0.82 }
+                Row { visible: !win.sideShown && win.width >= 1000
+                    anchors.right: parent.right; anchors.top: parent.top; anchors.rightMargin: 18; anchors.topMargin: 14; spacing: 8
+                    Rectangle { width: 6; height: 6; radius: 3; color: win.stateAccent; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "COMMAND CENTER"; color: Theme.textSecondary; font.family: Theme.mono; font.pixelSize: 9; font.letterSpacing: 1.6 }
+                }
                 Column {
                     visible: win.width >= 1200 && !win.sideShown
                     x: 18; y: 100; width: 112; spacing: 15; z: 2
@@ -743,7 +779,7 @@ ApplicationWindow {
                         id: coreArea
                         objectName: "orbArea"
                         Layout.fillWidth: true; Layout.fillHeight: true
-                        readonly property real coreSize: Math.max(0, Math.min(width * 0.90, height - 12, 550))
+                readonly property real coreSize: Math.max(0, Math.min(width * 0.94, height - 8, 620))
                         TacticalCore {
                             id: mainOrb
                             objectName: "sentinelCore"
@@ -901,14 +937,14 @@ ApplicationWindow {
 
                     Item {
                         id: commandAnchor; visible: win.width < 1200
-                        Layout.fillWidth: true; Layout.leftMargin: 12; Layout.rightMargin: 12; Layout.preferredHeight: 36
+                        Layout.fillWidth: true; Layout.leftMargin: 12; Layout.rightMargin: 12; Layout.preferredHeight: 46
                     TacInput {
                         id: commandInput
                         parent: !win.sideShown && win.width >= 1200 ? footerInputSlot : commandAnchor
-                        width: parent.width; height: 34
+                        width: parent.width; height: 44
                         objectName: "commandInput"
                         Layout.fillWidth: true; Layout.leftMargin: 12; Layout.rightMargin: 12
-                        implicitHeight: 36; cornerRadius: 18; accent: Theme.accent; prefix: "◈"
+                        implicitHeight: 44; cornerRadius: 22; accent: win.stateAccent; prefix: "⌁"
                         placeholderText: "NÓI VỚI NEXA   /   Nhập lệnh · Ctrl+K"
                         function submit() { if (text.trim().length) { nexa.sendText(text.trim()); text = "" } }
                         onAccepted: submit()
@@ -949,37 +985,37 @@ ApplicationWindow {
                             objectName: "dock"
                             implicitWidth: dockRow.implicitWidth + (stage.tight ? 12 : 20)
                             implicitHeight: dockRow.implicitHeight + 4
-                            Chamfer { anchors.fill: parent; cut: 12; fill: Theme.panelGlass; stroke: Qt.rgba(win.ice.r, win.ice.g, win.ice.b, 0.25) }
-                            Rectangle { x: 18; y: 0; width: 28; height: 1; color: win.ice; opacity: 0.6 }
+                            Chamfer { anchors.fill: parent; cut: 14; fill: Theme.panelGlass; stroke: Qt.rgba(win.ice.r, win.ice.g, win.ice.b, 0.38) }
+                            Rectangle { x: 24; y: 0; width: 54; height: 2; color: win.stateAccent; opacity: 0.72 }
                             Row {
                                 id: dockRow
                                 anchors.centerIn: parent
                                 spacing: stage.tight ? 3 : 6
                                 TacButton {
-                                    primary: true; tint: win.stateAccent; showCaption: false
+                                    primary: true; tint: win.stateAccent; showCaption: !stage.tight
                                     glyphCode: 0xE720
                                     pulsing: nexa.state === "LISTENING"
                                     caption: nexa.state === "STANDBY" ? "Đánh thức" : "Nói"
                                     tip: nexa.state === "STANDBY" ? "Đánh thức NEXA (Ctrl+Alt+N)" : "Nhấn để nói"
                                     onClicked: nexa.state === "STANDBY" ? nexa.wake() : nexa.pushToTalk()
                                 }
-                                TacButton { glyphCode: 0xE708; caption: "Nghỉ"; tip: "Cho NEXA nghỉ"; showCaption: false
+                                TacButton { glyphCode: 0xE708; caption: "Nghỉ"; tip: "Cho NEXA nghỉ"; showCaption: !stage.tight
                                             enabled: nexa.state !== "STANDBY"; onClicked: nexa.sleep() }
-                                TacButton { glyphCode: 0xE8F2; caption: "Tâm sự"; tint: win.purple
-                                            active: nexa.status.companion === true; showCaption: false
+                                TacButton { glyphCode: 0xE8F2; caption: "Tâm sự"; tint: win.purple; showCaption: !stage.tight
+                                            active: nexa.status.companion === true
                                             tip: active ? "Thoát chế độ tâm sự" : "Trò chuyện liên tục với NEXA"
                                             onClicked: nexa.sendText(active ? "thoát chế độ tâm sự" : "bật chế độ tâm sự") }
-                                TacButton { glyphCode: 0xE815; caption: "Cử chỉ"; tint: win.purple; active: nexa.cameraOn
+                                TacButton { glyphCode: 0xE815; caption: "Cử chỉ"; tint: win.purple; active: nexa.cameraOn; showCaption: !stage.tight
                                             tip: nexa.cameraOn ? "Tắt cử chỉ tay (tắt camera)" : "Bật cử chỉ tay (bật camera)"
-                                            showCaption: false; onClicked: nexa.toggleGestures() }
-                                TacButton { glyphCode: 0xF158; caption: "3D"; active: nexa3d.workspace || win.viewer3dOpen
-                                            tip: "Mô hình 3D"; showCaption: false
+                                            onClicked: nexa.toggleGestures() }
+                                TacButton { glyphCode: 0xF158; caption: "3D"; active: nexa3d.workspace || win.viewer3dOpen; showCaption: !stage.tight
+                                            tip: "Mô hình 3D"
                                             onClicked: nexa3d.workspace = !nexa3d.workspace }
-                                TacButton { glyphCode: 0xE943; caption: "Code"; tint: win.blue; active: nexaCode.panelOpen
-                                            tip: "Sinh code"; showCaption: false
+                                TacButton { glyphCode: 0xE943; caption: "Code"; tint: win.blue; active: nexaCode.panelOpen; showCaption: !stage.tight
+                                            tip: "Sinh code"
                                             onClicked: nexaCode.panelOpen ? nexaCode.closePanel() : nexaCode.openPanel() }
-                                TacButton { glyphCode: 0xE8BD; caption: "Nhật ký"; active: win.historyOpen; visible: !win.logDocked
-                                            tip: "Nhật ký hội thoại và ô gõ lệnh (Ctrl+H)"; showCaption: false
+                                TacButton { glyphCode: 0xE8BD; caption: "Nhật ký"; active: win.historyOpen; visible: !win.logDocked; showCaption: !stage.tight
+                                            tip: "Nhật ký hội thoại và ô gõ lệnh (Ctrl+H)"
                                             onClicked: win.toggleHistory() }
                                 TacButton { glyphCode: 0xE711; caption: "Hủy"; tint: win.amber; visible: win.busy
                                             tip: "Hủy tác vụ đang chạy"; showCaption: false
@@ -1243,6 +1279,12 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 Layout.fillWidth: true
                 source: "ModelViewer.qml"
+                onLoaded: {
+                    if (win.pendingProductPanel) {
+                        item.commandProductPanel("open", win.pendingProductPanel)
+                        win.pendingProductPanel = ""
+                    }
+                }
                 onStatusChanged: if (status === Loader.Error) toastBox.show("Không nạp được trình xem 3D (thiếu Qt Quick 3D?). Xem logs/nexa.log.", true)
             }
 
@@ -1391,6 +1433,14 @@ ApplicationWindow {
         width: Math.min(win.width - 80, 980); height: Math.min(win.height - 90, 680)
         z: 18
         sourceComponent: Component { ModelGenerationPanel { onCloseRequested: nexa3d.workspace = false } }
+    }
+    Loader {
+        id: educationWorkspace
+        active: nexaEdu.open && !nexa.compact
+        anchors.centerIn: parent
+        width: Math.min(win.width - 80, 1050); height: Math.min(win.height - 90, 700)
+        z: 18
+        sourceComponent: Component { EducationPanel { onCloseRequested: nexaEdu.close() } }
     }
     // (trình xem 3D nằm trong "Nội dung chính", cạnh cột NEXA)
 

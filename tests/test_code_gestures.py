@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import MagicMock
+import pytest
 
 from nexa.code.gesture_controller import CodeGestureParams, CodeGestureStateMachine, CState
 from nexa.code.models import CodeFile, CodeResult
@@ -233,7 +234,7 @@ def test_route_gestures_priority():
     fake = MagicMock()
     fake.code.panel_open, fake.three_d.viewer.is_open = True, True
     Controller._route_gestures(fake)
-    fake.gestures.set_viewer_mode.assert_called_with(True, fake.code.feed_gesture, name="code")
+    fake.gestures.set_viewer_mode.assert_called_with(True, fake._feed_code_gesture, name="code")
     fake.code.panel_open = False
     Controller._route_gestures(fake)
     fake.gestures.set_viewer_mode.assert_called_with(True, fake.three_d.feed_gesture, name="3d")
@@ -267,6 +268,9 @@ def test_mic_snap_runs_code_when_panel_open(monkeypatch):
     monkeypatch.setattr(ctl, "_ms_since_last_input", lambda: None)
     fake = MagicMock()
     fake.clap_test = False
+    fake._companion = False
+    fake.safety.control_paused = False
+    fake.multimodal.waiting.return_value = False
     fake.code.panel_open = True
     ctl.Controller._on_snap(fake, MagicMock(peak_db=-20.0))
     fake.code.gesture_run.assert_called_with("mic")
@@ -274,6 +278,18 @@ def test_mic_snap_runs_code_when_panel_open(monkeypatch):
     fake.code.panel_open = False
     ctl.Controller._on_snap(fake, MagicMock(peak_db=-20.0))
     fake.three_d.toggle_animation.assert_called_with("mic")
+
+
+@pytest.mark.parametrize("companion,paused,waiting", [(True, False, False), (False, True, False), (False, False, True)])
+def test_mic_snap_blocked_during_conversation_stop_or_speech(companion, paused, waiting):
+    from nexa.core.controller import Controller
+    fake = MagicMock()
+    fake._companion = companion
+    fake.safety.control_paused = paused
+    fake.multimodal.waiting.return_value = waiting
+    Controller._on_snap(fake, MagicMock(peak_db=-20.0))
+    fake.code.gesture_run.assert_not_called()
+    fake.three_d.toggle_animation.assert_not_called()
 
 
 def test_engine_exclusive_mode_name(config):

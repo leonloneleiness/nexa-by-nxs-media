@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import tempfile
 from dataclasses import dataclass, field
@@ -89,6 +90,8 @@ def validate_schema(schema: dict, value: Any, path: str = "args") -> tuple[bool,
     if t == "number":
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return False, f"{path} phải là số", None
+        if not math.isfinite(value):
+            return False, f"{path} phải là số hữu hạn", None
         if "minimum" in schema and value < schema["minimum"]:
             return False, f"{path} nhỏ hơn {schema['minimum']}", None
         if "maximum" in schema and value > schema["maximum"]:
@@ -1250,4 +1253,6 @@ def build_registry(config: Any) -> ToolRegistry:
     register_code_tools(reg, config)
     from nexa.desktop.routines import register_routine_tools
     register_routine_tools(reg, config)
+    from nexa.ai.ui_commands import register_ui_tools
+    register_ui_tools(reg, config)
     return reg

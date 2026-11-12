@@ -1,6 +1,6 @@
 """Nhận dạng tiếng Việt cục bộ bằng faster-whisper (CPU mặc định, int8).
 
-- Model đa ngôn ngữ, language="vi"; tên model đổi được trong Settings (tiny/base/small/medium/
+- Model đa ngôn ngữ, tự nhận Việt/Anh mặc định (stt.language=auto); tên model đổi được trong Settings (tiny/base/small/medium/
   large-v3/large-v3-turbo). Model tải một lần từ Hugging Face (Systran) rồi cache trong models/whisper.
 - Lọc câu im lặng/nhiễu: vad_filter của faster-whisper (Silero VAD), ngưỡng no_speech_prob,
   avg_logprob và danh sách câu "ảo giác" thường gặp của Whisper khi gặp im lặng.
@@ -90,7 +90,10 @@ HALLUCINATIONS = [
 # Câu mẫu trộn tiếng Anh: Whisper bắt chước văn phong của gợi ý, nên ghi "file", "folder", "YouTube" đúng chính tả
 # thay vì phiên âm "phai", "phôn đơ", "iu túp".
 INITIAL_PROMPT = ("Nexa, mở YouTube, mở VS Code, mở file báo cáo, tạo folder dự án, tìm trên Google, mở ChatGPT, "
-                  "bật Wi-Fi, copy, paste, âm lượng ba mươi phần trăm, chụp màn hình, mở video đầu tiên, dừng lại.")
+                    "bật Wi-Fi, copy, paste, đặt âm lượng ba mươi phần trăm, chụp màn hình, mở video đầu tiên, "
+                    "chạy thử code, chọn bài học con lắc đơn, dừng lại. "
+                    "Nexa, open Notepad, set volume to thirty percent, take a screenshot, open settings, "
+                    "select lesson pendulum, run code tests, emergency stop.")
 
 
 def static_hotwords(config: Any) -> list[str]:
@@ -117,6 +120,10 @@ class SttResult:
     no_speech_prob: float = 0.0
     bias_mode: str = ""
     context_terms: tuple[str, ...] = ()
+    language: str = ""
+    language_probability: float = 0.0
+    retried: bool = False
+    retry_elapsed_s: float = 0.0
 
 
 class SpeechRecognizer:
@@ -244,28 +251,70 @@ class SpeechRecognizer:
         peak = float(np.max(np.abs(audio))) if audio.size else 0.0
         if peak < 1e-3:
             return SttResult("", False, "Chỉ có im lặng", duration)
-        if peak < 0.3:
-            audio = audio * (0.3 / peak)  # chuẩn hóa nhẹ cho mic nhỏ
+        if self.config.get("stt.audio_normalize"):
+            # Mic nhỏ và giọng khàn thường có biên độ thấp. Khử DC + chuẩn hóa RMS giúp Whisper
+            # nghe rõ phụ âm hơn, nhưng giới hạn gain để tiếng ồn không bị phóng đại vô hạn.
+            audio = audio.astype(np.float32, copy=True)
+            audio -= float(np.median(audio))
+            rms = float(np.sqrt(np.mean(audio * audio)) + 1e-8)
+            target = 0.075
+            gain = min(4.0, max(1.0, target / rms))
+            audio = np.clip(audio * gain, -1.0, 1.0)
+        elif peak < 0.3:
+            audio = audio * (0.3 / peak)  # tương thích cấu hình cũ
         mode, prompt, hotwords, ctx = self.prompt_for(context)
         t = time.monotonic()
+        retried, retry_elapsed = False, 0.0
+        configured_language = str(self.config.get("stt.language") or "auto").lower()
+        language = None if configured_language in ("auto", "", "multilingual") else configured_language
+        beam_size = max(1, int(self.config.get("stt.beam_size") or 5))
         with self._lock:
             segments, info = self._model.transcribe(
-                audio.astype(np.float32), language=self.config.get("stt.language") or "vi",
-                beam_size=int(self.config.get("stt.beam_size") or 3), vad_filter=True,
+                audio.astype(np.float32), language=language,
+                beam_size=beam_size, vad_filter=True,
                 vad_parameters={"min_silence_duration_ms": 400}, condition_on_previous_text=False,
                 without_timestamps=True, initial_prompt=prompt, temperature=0.0,
                 hotwords=hotwords or None)
             segs = list(segments)
-        elapsed = time.monotonic() - t
 
         def result(text: str, ok: bool, reason: str = "", lp: float = 0.0, nsp: float = 0.0) -> SttResult:
-            return SttResult(text, ok, reason, duration, elapsed, lp, nsp, bias_mode=mode, context_terms=ctx)
+            return SttResult(text, ok, reason, duration, time.monotonic() - t, lp, nsp,
+                             bias_mode=mode, context_terms=ctx,
+                             language=getattr(info, "language", ""),
+                             language_probability=float(getattr(info, "language_probability", 0.0)),
+                             retried=retried, retry_elapsed_s=retry_elapsed)
 
         if not segs:
             return result("", False, "Không có lời nói")
         text = " ".join(s.text.strip() for s in segs).strip()
         avg_lp = float(np.mean([s.avg_logprob for s in segs]))
         nsp = float(np.max([s.no_speech_prob for s in segs]))
+        # Với giọng khàn, nói nhỏ hoặc trộn Việt/Anh, một lượt decode cố định ngôn ngữ dễ sai.
+        # Thử lại bằng auto-detect với beam rộng hơn khi lượt đầu có tín hiệu yếu.
+        recovery = bool(self.config.get("stt.bilingual_recovery", True))
+        if recovery and (avg_lp < -0.65 or nsp > 0.45) and duration <= float(
+                self.config.get("stt.recovery_max_audio_s", 8.0)):
+            retried = True
+            retry_start = time.monotonic()
+            try:
+                with self._lock:
+                    retry_segments, retry_info = self._model.transcribe(
+                        audio.astype(np.float32), language=None, beam_size=min(10, max(7, beam_size + 2)), vad_filter=True,
+                        vad_parameters={"min_silence_duration_ms": 400}, condition_on_previous_text=False,
+                        without_timestamps=True, initial_prompt=prompt, temperature=0.2,
+                        hotwords=hotwords or None)
+                    retry = list(retry_segments)
+            except Exception:
+                log.warning("Không giải mã lại được; giữ kết quả lượt đầu", exc_info=True)
+                retry = []
+            retry_elapsed = time.monotonic() - retry_start
+            if retry:
+                retry_lp = float(np.mean([s.avg_logprob for s in retry]))
+                retry_nsp = float(np.max([s.no_speech_prob for s in retry]))
+                if retry_lp > avg_lp and retry_nsp <= max(0.45, nsp):
+                    segs, avg_lp, nsp = retry, retry_lp, retry_nsp
+                    info = retry_info
+                    text = " ".join(s.text.strip() for s in segs).strip()
         text = re.sub(r"\s+", " ", text).strip(" .,…")
         if not text:
             return result("", False, "Không có lời nói", avg_lp, nsp)

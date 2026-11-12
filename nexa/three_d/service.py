@@ -28,6 +28,12 @@ class ThreeDService:
                  token_factory: Callable[[], CancelToken] | None = None, store: AssetStore | None = None,
                  provider_factory: Callable[[], Any] | None = None) -> None:
         self.config = config
+        self.multimodal = None
+        self.can_interact = lambda: True
+        self._point_started = None
+        self._point_last = None
+        self._point_anchor = None
+        self._point_emit = 0.0
         self._notify = notify or (lambda k, d: None)
         self.gemini = gemini
         self.store = store or AssetStore.from_config(config)
@@ -150,11 +156,62 @@ class ThreeDService:
         return self.viewer.is_open
 
     def feed_gesture(self, obs: Any, t_frame: float | None = None) -> list:
+        if self.multimodal is not None:
+            # Never block the camera behind a slow executor command.
+            if not self.multimodal.execution_lock.acquire(blocking=False):
+                return []
+            try:
+                return self._feed_gesture_locked(obs, t_frame)
+            finally:
+                self.multimodal.execution_lock.release()
+        return self._feed_gesture_locked(obs, t_frame)
+
+    def _feed_gesture_locked(self, obs: Any, t_frame: float | None = None) -> list:
         """Gọi từ luồng camera khi ở chế độ VIEWER_3D."""
         import time as _t
+        from nexa.vision.gesture_features import Pose
+        if not self.can_interact() or self.locked:
+            with self._gesture_lock:
+                self.gesture_sm.reset("tạm ngừng tương tác")
+            return []
+        pointing = obs.present and obs.confidence >= 0.65 and obs.pointer is not None and obs.pose in (
+            Pose.POINT_UP, Pose.POINT_LEFT, Pose.POINT_RIGHT)
+        if pointing and self.config.get("multimodal.enabled", True):
+            x, y = obs.pointer
+            if self._point_anchor is None or sum((a-b)**2 for a, b in zip(obs.pointer, self._point_anchor)) > 0.0036:
+                self._point_started = obs.t
+                self._point_anchor = obs.pointer
+            self._point_last = obs.pointer
+            if self._point_started is not None and obs.t - self._point_started >= 0.3 and obs.t - self._point_emit >= 0.1:
+                self._point_emit = obs.t
+                self._notify("3d_pointer", {"x": max(0.0, min(1.0, x)), "y": max(0.0, min(1.0, y)),
+                                            "at": obs.t, "project_id": self.viewer.project.id if self.viewer.project else ""})
+        else:
+            self._point_started = self._point_last = None
+            self._point_anchor = None
         with self._gesture_lock:
             events = self.gesture_sm.update(obs, self.viewer.exploded)
         for ev in events:
+            if self.multimodal is not None and ev.kind != "hud":
+                project = self.viewer.project.id if self.viewer.project else ""
+                mapping = {"zoom": ("zoom_3d_view", {"direction": "in" if ev.factor > 1 else "out"}),
+                           "rotate": ("rotate_3d_view", {"direction":
+                               ("right" if ev.dyaw > 0 else "left") if abs(ev.dyaw) >= abs(ev.dpitch)
+                               else ("up" if ev.dpitch < 0 else "down")}),
+                           "explode": ("explode_3d_assembly", {}), "collapse": ("collapse_3d_assembly", {}),
+                           "motion_toggle": ("set_3d_motion", {"on": not self.viewer.animating})}
+                if ev.kind in mapping:
+                    name, args = mapping[ev.kind]
+                    if self.multimodal.waiting():
+                        self.multimodal.observe(name, args, ev.t, project)
+                        continue
+                    from nexa.core.events import Source, ToolCall
+                    call = ToolCall(name, args, Source.GESTURE, input_started_at=ev.t,
+                                    input_ended_at=ev.t, target_id=project)
+                    if self.multimodal.guard(call) is not None:
+                        continue
+                    # Viewer gestures are applied synchronously below; record only supported motion events.
+                    self.multimodal.observe(name, args, ev.t, project, applied=True)
             if ev.kind == "rotate" and t_frame is not None:
                 ev.extra["latency_ms"] = (_t.monotonic() - t_frame) * 1000.0
             self.viewer.apply_gesture(ev)

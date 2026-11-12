@@ -22,6 +22,15 @@ Item {
     property bool warnOpen: false
     ProductMediaDialog { id: mediaDialog }
     BuildDossierDialog { id: buildDialog }
+    function commandProductPanel(action, panel) {
+        if (panel === "build") {
+            if (action === "open") { nexa3d.refreshBuildDossier(); buildDialog.open() }
+            else buildDialog.close()
+        } else if (panel === "media") {
+            if (action === "open") mediaDialog.open()
+            else mediaDialog.close()
+        }
+    }
 
     // ---------- khung ngắm: nẹp 4 góc vùng nhìn + chữ thập mờ ở giữa ----------
     Item {

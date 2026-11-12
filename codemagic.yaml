@@ -1,0 +1,85 @@
+workflows:
+  nexa-ios-sideload:
+    name: NEXA IPA for Windows Sideloadly
+    working_directory: mobile
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: 3.50.0
+      xcode: latest
+    scripts:
+      - name: Validate application and packager
+        script: |
+          set -e
+          flutter pub get
+          flutter analyze
+          flutter test
+          python3 -m unittest discover -s tool -p 'test_*.py'
+      - name: Compile device application without signing
+        script: flutter build ios --release --no-codesign
+      - name: Package IPA for re-signing on Windows
+        script: python3 tool/package_sideload.py
+    artifacts:
+      - mobile/build/sideload/*.ipa
+      - mobile/build/sideload/*.sha256
+      - mobile/build/sideload/*.json
+      - /tmp/xcodebuild_logs/*.log
+  nexa-ios-unsigned:
+    name: NEXA iOS compilation check
+    working_directory: mobile
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: 3.50.0
+      xcode: latest
+    scripts:
+      - name: Validate and compile without signing
+        script: |
+          set -e
+          flutter pub get
+          flutter analyze
+          flutter test
+          flutter build ios --release --no-codesign
+    artifacts:
+      - mobile/build/ios/iphoneos/*.app
+  nexa-ios:
+    working_directory: mobile
+    name: NEXA iOS signed build
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: 3.50.0
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: development
+        bundle_identifier: com.nxsmedia.nexaMobile
+    integrations:
+      app_store_connect: NEXA_APP_STORE_CONNECT
+    scripts:
+      - name: Get packages
+        script: flutter pub get
+      - name: Analyze and test
+        script: flutter analyze && flutter test
+      - name: Fetch signing files
+        script: xcode-project use-profiles
+      - name: Build IPA
+        script: flutter build ipa --release --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - mobile/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+  nexa-android:
+    working_directory: mobile
+    name: NEXA Android APK
+    instance_type: linux_x2
+    max_build_duration: 30
+    environment:
+      flutter: 3.50.0
+    scripts:
+      - name: Get packages and test
+        script: flutter pub get && flutter analyze && flutter test
+      - name: Build APK
+        script: flutter build apk --release
+    artifacts:
+      - mobile/build/app/outputs/flutter-apk/*.apk

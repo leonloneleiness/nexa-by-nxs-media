@@ -77,6 +77,9 @@ class ToolCall:
     step_id: str = field(default_factory=new_step_id)
     call_id: str | None = None          # ID function call do Gemini cấp (nếu có)
     snapshot: Any = None                # ảnh chụp trạng thái cửa sổ lúc bắt đầu cử chỉ
+    input_started_at: float | None = None
+    input_ended_at: float | None = None
+    target_id: str = ""
 
     @property
     def idempotency_key(self) -> tuple[str, str]:

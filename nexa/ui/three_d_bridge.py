@@ -192,6 +192,7 @@ class ThreeDBridge(QObject):
     stateChanged = Signal()
     cameraChanged = Signal()
     gestureChanged = Signal()
+    pointerRequested = Signal(float, float, float, str)
     jobsChanged = Signal()
     miscChanged = Signal()
     toast = Signal(str, bool)
@@ -244,6 +245,8 @@ class ThreeDBridge(QObject):
             v["camera"] = {"yaw": data["yaw"], "pitch": data["pitch"], "zoom": data["zoom"],
                            "target": self._to_view(data["target"]), "radius": float(data["radius"]) * self._scale}
             self.cameraChanged.emit()
+        elif kind == "3d_pointer":
+            self.pointerRequested.emit(float(data["x"]), float(data["y"]), float(data["at"]), data["project_id"])
         elif kind == "3d_gesture":
             v["gesture"] = dict(data, time=time.monotonic())
             self.gestureChanged.emit()
@@ -517,6 +520,15 @@ class ThreeDBridge(QObject):
     @Slot(str)
     def selectPart(self, pid: str) -> None:
         self.svc.viewer.select(pid)
+
+    @Slot(str, float, str)
+    def selectPointedPart(self, pid: str, at: float, project_id: str) -> None:
+        viewer = self.svc.viewer
+        if viewer.locked or not viewer.project or viewer.project.id != project_id or time.monotonic() - at > 0.5:
+            return
+        if not self.svc.can_interact():
+            return
+        viewer.select(pid, at=at)
 
     @Slot()
     def showAll(self) -> None:

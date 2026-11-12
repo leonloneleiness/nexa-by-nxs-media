@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import marshal
 from pathlib import Path
 from types import CodeType
 
@@ -29,6 +31,9 @@ def main() -> int:
     archive = CArchiveReader(str(args.exe))
     pyz = archive.open_embedded_archive(next(name for name in archive.toc if name.endswith('.pyz')))
     checked, mismatched = [], []
+    expected = {'.'.join(p.relative_to(ROOT).with_suffix('').parts).removesuffix('.__init__')
+                for p in (ROOT / 'nexa').rglob('*.py')}
+    missing = sorted(expected - set(pyz.toc))
     for name in sorted(pyz.toc):
         if name != 'nexa' and not name.startswith('nexa.'):
             continue
@@ -42,7 +47,22 @@ def main() -> int:
         if signature(source) != signature(bundled):
             mismatched.append(name)
         checked.append(name)
-    report = {'ok': bool(checked) and not mismatched, 'checked_modules': len(checked), 'mismatched': mismatched}
+    main_source = compile((ROOT / 'main.py').read_text(encoding='utf-8-sig'), 'main.py', 'exec', dont_inherit=True)
+    if signature(main_source) != signature(marshal.loads(archive.extract('main'))):
+        mismatched.append('main')
+    resources, changed_resources = 0, []
+    for folder in ('nexa/ui/qml', 'assets'):
+        for src in (ROOT / folder).rglob('*'):
+            if not src.is_file() or '__pycache__' in src.parts:
+                continue
+            relative = src.relative_to(ROOT)
+            bundled = args.exe.parent / '_internal' / relative
+            if not bundled.is_file() or hashlib.sha256(src.read_bytes()).digest() != hashlib.sha256(bundled.read_bytes()).digest():
+                changed_resources.append(relative.as_posix())
+            resources += 1
+    report = {'ok': bool(checked) and not (mismatched or missing or changed_resources),
+              'checked_modules': len(checked), 'mismatched': mismatched, 'missing_modules': missing,
+              'checked_resources': resources, 'changed_resources': changed_resources}
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2), encoding='utf-8')
     print(json.dumps(report))

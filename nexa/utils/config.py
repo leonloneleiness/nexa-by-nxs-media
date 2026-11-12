@@ -3,7 +3,7 @@
 - Cấu hình mặc định nằm trong mã (DEFAULTS) và được mô tả trong config/settings.example.yaml.
 - Người dùng chỉnh trong config/settings.yaml (tự tạo lần chạy đầu, không đưa vào Git).
 - Ngưỡng cử chỉ nằm trong config/gestures.yaml.
-- Bí mật (GEMINI_API_KEY) chỉ đọc từ biến môi trường hoặc tệp .env cục bộ; không bao giờ
+- Bí mật (GEMINI_API_KEY/OPENAI_API_KEY) chỉ đọc từ biến môi trường hoặc tệp .env cục bộ; không bao giờ
   được ghi vào settings.yaml.
 """
 from __future__ import annotations
@@ -138,16 +138,25 @@ DEFAULTS: dict[str, Any] = {
         "model": "auto",              # auto = large-v3-turbo trên GPU NVIDIA nếu có, không thì small trên CPU
         "device": "auto",             # auto | cuda | cpu
         "compute_type": "auto",       # auto = float16 trên GPU, int8 trên CPU
-        "beam_size": 3,               # đo trên máy: 1 → 3 chỉ chậm thêm ~0,1 s/câu nhưng đúng hơn; 5 không hơn 3
+        "beam_size": 5,               # ưu tiên độ chính xác hơn tốc độ; câu khó sẽ được giải mã lại
         "hotwords": [],               # tên riêng anh hay nói, thêm vào gợi ý cho Whisper
         # Dưới ngưỡng này (avg_logprob) mà câu không khớp lệnh cơ bản nào thì hỏi lại thay vì gửi Gemini đoán.
         "min_confidence_logprob": -0.9,
         "cpu_threads": 0,
-        "language": "vi",
+        "language": "auto",          # auto nhận Việt/Anh trong cùng câu; vi nếu chỉ dùng tiếng Việt
+        "bilingual_recovery": True,    # thử giải mã lần hai khi câu có dấu hiệu nghe nhầm/giọng khàn
+        "recovery_max_audio_s": 8.0,
+        "audio_normalize": True,      # nâng gain ổn định cho mic nhỏ, tránh khuếch đại quá mức
         # Gợi ý cho Whisper: none | static (danh sách cố định) | context (thêm tên ứng dụng/dịch vụ đang mở trên máy).
         # Là biến thí nghiệm của docs/research_asr.md; dùng hằng ngày để "context".
         "bias_mode": "context",
         "context_max_terms": 12,
+    },
+    "multimodal": {
+        "enabled": True,
+        "window_s": 0.8,
+        "max_pending_s": 20.0,
+        "gesture_max_age_s": 2.0,
     },
     "research": {
         # Thu dữ liệu nghiên cứu nhận dạng (docs/research_asr.md). TẮT mặc định: bật lên thì mỗi câu nói được lưu
@@ -171,6 +180,8 @@ DEFAULTS: dict[str, Any] = {
     "ai": {
         "provider": "gemini",
         "model": "",                  # rỗng = lấy GEMINI_MODEL từ môi trường
+        "openai_model": "codex-auto-review",
+        "openai_base_url": "https://api.aixinglaire.shop",
         "max_history_turns": 12,
         "persist_history": False,
         "max_output_tokens": 1024,
@@ -685,6 +696,22 @@ class Config:
             return 15.0
 
     @property
+    def openai_model(self) -> str:
+        return (os.environ.get("OPENAI_MODEL") or self.get("ai.openai_model") or "codex-auto-review").strip()
+
+    @property
+    def openai_base_url(self) -> str:
+        return (os.environ.get("OPENAI_BASE_URL") or self.get("ai.openai_base_url") or
+                "https://api.aixinglaire.shop").strip().rstrip("/")
+
+    @property
+    def openai_timeout_s(self) -> float:
+        try:
+            return max(5.0, float(os.environ.get("OPENAI_REQUEST_TIMEOUT_SECONDS", "30")))
+        except ValueError:
+            return 30.0
+
+    @property
     def max_tool_steps(self) -> int:
         try:
             return max(1, min(20, int(os.environ.get("NEXA_MAX_TOOL_STEPS", "8"))))
@@ -706,8 +733,22 @@ class Config:
             return ""
         return key.strip()
 
+    def openai_api_key(self) -> str:
+        key = os.environ.get("OPENAI_API_KEY", "")
+        if is_placeholder_secret(key):
+            return ""
+        return key.strip()
+
     def gemini_key_status(self) -> str:
         raw = os.environ.get("GEMINI_API_KEY")
+        if raw is None or not raw.strip():
+            return "missing"
+        if is_placeholder_secret(raw):
+            return "placeholder"
+        return "set"
+
+    def openai_key_status(self) -> str:
+        raw = os.environ.get("OPENAI_API_KEY")
         if raw is None or not raw.strip():
             return "missing"
         if is_placeholder_secret(raw):
@@ -717,11 +758,12 @@ class Config:
     def store_api_key(self, key: str, persist: bool) -> None:
         """Đặt key cho phiên hiện tại; nếu persist=True thì ghi vào .env cục bộ."""
         key = (key or "").strip()
-        os.environ["GEMINI_API_KEY"] = key
+        env_name = "OPENAI_API_KEY" if self.ai_provider in ("openai", "openai_compatible", "compatible") else "GEMINI_API_KEY"
+        os.environ[env_name] = key
         from nexa.utils.logging import register_secret
         register_secret(key)
         if persist:
-            _upsert_env_line("GEMINI_API_KEY", key)
+            _upsert_env_line(env_name, key)
 
     def set_gemini_model(self, model: str) -> None:
         self.set("ai.model", model.strip())

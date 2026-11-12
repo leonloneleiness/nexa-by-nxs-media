@@ -564,6 +564,14 @@ def section_on_plane(profile2d: np.ndarray, origin: Sequence[float], normal_axis
 
 def rotation_minimizing_frames(path: np.ndarray, up: Sequence[float] = (0, 0, 1)) -> tuple[np.ndarray, np.ndarray,
                                                                                            np.ndarray]:
+    from nexa.native.geometry import frames
+    result = frames(path, up)
+    if result is not None:
+        return result
+    return _rotation_minimizing_frames_python(path, up)
+
+
+def _rotation_minimizing_frames_python(path: np.ndarray, up: Sequence[float] = (0, 0, 1)):
     """Khung dọc đường (T, N, B) theo phương pháp phản xạ kép (Wang 2008) — không xoắn bất thường."""
     p = np.asarray(path, dtype=np.float64)
     k = len(p)

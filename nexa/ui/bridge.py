@@ -70,6 +70,7 @@ class UiBridge(QObject):
     monitorsChanged = Signal()
     mediaTargetsChanged = Signal()
     raiseWindow = Signal()
+    commandNavigation = Signal(str, str)
     statsChanged = Signal()
 
     def __init__(self, controller, overlay=None, hud=None) -> None:

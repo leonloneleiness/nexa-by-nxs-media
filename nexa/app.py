@@ -90,14 +90,22 @@ def run(argv: list[str]) -> int:
     register_qml_types()
     ui3d = ThreeDBridge(controller)
     holder["ui3d"] = ui3d
+    from nexa.ui.education_bridge import EducationBridge
+    ui_edu = EducationBridge()
+    holder["uiEdu"] = ui_edu
     from nexa.ui.code_bridge import CodeBridge
     uicode = CodeBridge(controller, web_preview=web_preview)
     holder["uicode"] = uicode
+    from nexa.ui.command_bridge import CommandBridge
+    command_bridge = CommandBridge(ui, uicode, ui3d, ui_edu)
+    holder["commands"] = command_bridge
+    controller.services.hooks["ui_command"] = command_bridge.dispatch
 
     engine = QQmlApplicationEngine()
     engine.addImageProvider("camera", CameraImageProvider(controller))
     engine.rootContext().setContextProperty("nexa", ui)
     engine.rootContext().setContextProperty("nexa3d", ui3d)
+    engine.rootContext().setContextProperty("nexaEdu", ui_edu)
     engine.rootContext().setContextProperty("nexaCode", uicode)
     engine.warnings.connect(lambda warns: [log.warning("QML: %s", w.toString()) for w in warns])
     engine.load(QUrl.fromLocalFile(str(QML_DIR / "Main.qml")))

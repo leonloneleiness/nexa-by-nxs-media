@@ -124,7 +124,11 @@ class Controller:
 
         # ----- AI -----
         from nexa.utils.config import LOCAL_DATA_DIR
-        self.provider = GeminiProvider(config, state_path=LOCAL_DATA_DIR / "gemini_state.json")
+        if config.ai_provider in ("openai", "openai_compatible", "compatible"):
+            from nexa.ai.openai_provider import OpenAICompatibleProvider
+            self.provider = OpenAICompatibleProvider(config, state_path=LOCAL_DATA_DIR / "openai_state.json")
+        else:
+            self.provider = GeminiProvider(config, state_path=LOCAL_DATA_DIR / "gemini_state.json")
         self.vision = ScreenVision(config, self.provider, notify=self.notify)
         self.services = Services(config=config, wm=self.wm, monitors=self.monitors, input=self.input, apps=self.apps,
                                  files=FileService(config), shots=Screenshotter(config), volume=VolumeControl(),
@@ -138,6 +142,11 @@ class Controller:
                                  autonomy=lambda: (self.config.get("safety.autonomy") or "standard"))
         self.executor.add_listener(self._on_task_event)
         self.executor.add_confirm_hook(self._on_confirm_hook)
+        from nexa.core.multimodal import MultimodalCoordinator
+        self.multimodal = MultimodalCoordinator(config)
+        self.executor.multimodal = self.multimodal
+        self._speech_context = None
+        self._fusion_confirmation = None
         # ----- Mô hình 3D (nexa/three_d): job chạy nền, token gắn epoch an toàn (dừng khẩn cấp/hủy tự hủy job) -----
         from nexa.three_d.service import ThreeDService
         self.three_d = ThreeDService(config, notify=self.notify, gemini=self.provider,
@@ -146,6 +155,8 @@ class Controller:
         self.three_d.on_resume = lambda tpl: setattr(self, "_resume", tpl)
         self.three_d.on_viewer_mode = self._on_viewer_mode
         self.services.three_d = self.three_d
+        self.three_d.multimodal = self.multimodal
+        self.three_d.viewer.on_selection = self.multimodal.target
         # ----- Sinh code (nexa/code): việc nền, hiện trên bảng Sinh code để anh xem trước; không tự sao chép/chạy -----
         from nexa.code.service import CodeService
         self.code = CodeService(config, notify=self.notify, gemini=self.provider,
@@ -159,12 +170,15 @@ class Controller:
         self.services.side_by_side = SideBySide(config, self.api)
         self.router = IntentRouter(app_exists=lambda n: self.apps.resolve(n)[0] is not None,
                                    viewer_active=lambda: self.three_d.viewer_active, part_known=self._part_known,
-                                   routine_for=self._routine_for)
+                                   routine_for=self._routine_for, registry=self.registry)
 
         # ----- Cử chỉ -----
         from nexa.vision.engine import GestureEngine
         from nexa.vision.gesture_router import GestureRouter
         self.gesture_router = GestureRouter(self.executor, self.safety, config, on_result=self._on_gesture_result)
+        self.gesture_router.multimodal = self.multimodal
+        self.gesture_router.can_interact = lambda: not getattr(self, "_companion", False)
+        self.three_d.can_interact = lambda: not getattr(self, "_companion", False)
         from nexa.vision.air_mouse import AirMouse, InputMouseOutput, MouseParams
         self._monitor_cache: tuple[float, list, Any] = (-1e9, [], None)
         self.air_mouse = AirMouse(MouseParams.from_config(config.gestures), InputMouseOutput(self.input),
@@ -211,8 +225,8 @@ class Controller:
         self.safety.on_stop(self._on_emergency)
         self.safety.on_confirmation(self._on_confirmation)
 
-        self._stt_q: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=2)
-        self._cmd_q: "queue.Queue[tuple[str, Source] | None]" = queue.Queue(maxsize=8)
+        self._stt_q = queue.Queue(maxsize=2)  # (audio, capture-time SpeechContext)
+        self._cmd_q = queue.Queue(maxsize=8)  # (text, source, SpeechContext | None)
         self._running = False
         self._awake = False
         self._greeted = False
@@ -341,7 +355,9 @@ class Controller:
             "camera": {"on": self.gestures.running, "error": self.gestures.error},
             "air_mouse": {"on": self.gestures.mouse_mode},
             "ai": {"ok": ai_ok, "reason": ai_reason, "model": self.provider.model, "usage": dict(self.provider.usage),
-                   "calls": self.provider.calls, "key": self.config.gemini_key_status(),
+                   "calls": self.provider.calls, "key": (self.config.openai_key_status() if
+                                                            self.config.ai_provider in ("openai", "openai_compatible", "compatible")
+                                                            else self.config.gemini_key_status()),
                    "vision": self.config.cloud_screen_vision, "turns": self.provider.history_turns},
             "stt": {"ready": self.stt.ready, "loading": self.stt.loading, "model": self.stt.model_name,
                     "error": self.stt.error},
@@ -400,6 +416,8 @@ class Controller:
     def _on_snap(self, ev) -> None:
         """Búng tay (mic): bảng Sinh code đang mở → chạy thử; viewer 3D đang mở → bật/tắt chuyển động.
         Cả hai đều đóng thì pipeline không gọi tới."""
+        if getattr(self, "_companion", False) or self.safety.control_paused or self.multimodal.waiting():
+            return
         self.notify("snap", {"source": "mic", "peak_db": round(ev.peak_db, 1), "stats": self.audio.snap.stats()})
         if self.clap_test:
             return
@@ -639,6 +657,10 @@ class Controller:
             self.ducker.restore()
 
     def go_standby(self, reason: str = "") -> None:
+        if hasattr(self, "multimodal"):
+            self.multimodal.clear()
+            self._speech_context = None
+            self._fusion_confirmation = None
         self._awake = False
         self._companion = False
         self.audio.set_conversation_mode(False)
@@ -675,13 +697,29 @@ class Controller:
         self._last_activity = time.monotonic()
         self.stt_bias.refresh_async()     # tên ứng dụng đang mở → gợi ý cho Whisper khi anh nói xong
         self.attention.capture_for_voice()   # màn hình anh đang nhìn lúc bắt đầu nói
+        from nexa.core.multimodal import SpeechContext
+        from nexa.audio.context_bias import interaction_terms
+        mode = "code" if self.code.panel_open else ("3d" if self.three_d.viewer.is_open else "system")
+        viewer = self.three_d.viewer.state()
+        self._speech_context = SpeechContext(
+            start=getattr(self.audio, "speech_started_at", time.monotonic()), mode=mode,
+            project_id=viewer.get("project_id", "") if mode == "3d" else "",
+            selected=viewer.get("selected", ""),
+            terms=interaction_terms(mode, self.stt_bias.context_terms()), epoch=self.multimodal.epoch)
+        if not self._companion:
+            self.multimodal.begin(self._speech_context)
         self.notify("speech_start", {})
 
     def _on_utterance(self, audio: np.ndarray) -> None:
         self._unduck()        # anh nói xong: trả âm lượng để nghe được kết quả lệnh
+        context = self._speech_context
+        self._speech_context = None
+        if context is not None:
+            context.end = getattr(self.audio, "speech_ended_at", time.monotonic())
         try:
-            self._stt_q.put_nowait(audio)
+            self._stt_q.put_nowait((audio, context))
         except queue.Full:
+            self.multimodal.finish(context)
             log.warning("STT đang bận, bỏ một câu")
 
     def _on_listen_timeout(self) -> None:
@@ -704,10 +742,12 @@ class Controller:
     def _stt_worker(self) -> None:
         while self._running:
             try:
-                audio = self._stt_q.get(timeout=0.5)
+                item = self._stt_q.get(timeout=0.5)
+                audio, context = item if isinstance(item, tuple) else (item, None)
             except queue.Empty:
                 continue
             if not self.stt.ready:
+                self.multimodal.finish(context)
                 self.notify("heard", {"text": "", "reason": "Model nhận dạng chưa sẵn sàng"})
                 self._listen()
                 continue
@@ -715,7 +755,7 @@ class Controller:
             if not busy:
                 self.sm.set(AppState.THINKING, "Đang nhận dạng")
             try:
-                res = self.stt.transcribe(audio)
+                res = self.stt.transcribe(audio, context=context.terms if context else None)
             except Exception as exc:
                 log.exception("STT lỗi")
                 res = None
@@ -723,6 +763,7 @@ class Controller:
             if res is not None and self.corpus.enabled and not self._companion:
                 self._record_corpus(audio, res)
             if res is None or not res.ok:
+                self.multimodal.finish(context)
                 if res is not None:
                     self.notify("heard", {"text": "", "reason": res.reason})
                 self._listen()
@@ -731,6 +772,7 @@ class Controller:
                      res.avg_logprob, "[tâm sự]" if self._companion else res.text)
             self.notify("heard", {"text": res.text})
             if self._media_noise(res):
+                self.multimodal.finish(context)
                 self._media_ignored += 1
                 log.info("Đang phát nhạc: bỏ qua câu không phải lệnh (có thể là lời bài hát lọt vào mic)")
                 if self._media_ignored >= 2:
@@ -740,11 +782,14 @@ class Controller:
                 continue
             self._media_ignored = 0
             if self._unclear(res):
+                self.multimodal.finish(context)
                 log.info("Câu nghe không rõ và không khớp lệnh nào — hỏi lại thay vì đoán")
                 self.reply(f"Em nghe chưa rõ (\"{truncate(res.text, 40)}\"). Anh nói lại giúp em.",
                            spoken=UNCLEAR_PROMPT)
                 continue
-            self.submit_text(res.text, Source.VOICE)
+            self.notify("status_text", {"text": f"Nhận dạng {res.language or 'tự động'} · {res.elapsed_s:.2f}s"
+                                        + (" · đã kiểm tra lại" if res.retried else "")})
+            self.submit_text(res.text, Source.VOICE, context)
 
     def _record_corpus(self, audio: np.ndarray, res) -> None:
         """Chế độ thu dữ liệu nghiên cứu (research.record_corpus): lưu câu nói + kết quả nhận dạng để gán nhãn sau."""
@@ -785,7 +830,7 @@ class Controller:
         return kind not in TRUSTED_ROUTES
 
     # ================================================================ xử lý lệnh
-    def submit_text(self, text: str, source: Source = Source.KEYBOARD) -> None:
+    def submit_text(self, text: str, source: Source = Source.KEYBOARD, context=None) -> None:
         text = (text or "").strip()
         if not text:
             return
@@ -794,8 +839,9 @@ class Controller:
             if self.sm.state == AppState.STANDBY:
                 self.sm.set(AppState.THINKING, "Lệnh bàn phím")
         try:
-            self._cmd_q.put_nowait((text, source))
+            self._cmd_q.put_nowait((text, source, context))
         except queue.Full:
+            self.multimodal.finish(context)
             self.notify("status_text", {"text": "Hàng đợi lệnh đang đầy."})
 
     def _cmd_worker(self) -> None:
@@ -803,19 +849,29 @@ class Controller:
             item = self._cmd_q.get()
             if item is None:
                 break
-            text, source = item
+            text, source = item[:2]
+            context = item[2] if len(item) > 2 else None
             try:
-                self._process(text, source)
+                self._process(text, source, context)
             except Exception as exc:
                 log.exception("Lỗi xử lý lệnh")
                 self.sm.set(AppState.ERROR, str(exc))
                 self.reply(f"Em gặp lỗi khi xử lý: {truncate(str(exc), 120)}")
+            finally:
+                if context is None or not context.executing:
+                    self.multimodal.finish(context)
 
-    def _process(self, text: str, source: Source) -> None:
+    def _process(self, text: str, source: Source, context=None) -> None:
         self._last_activity = time.monotonic()
         self.notify("user_message", {"text": text, "source": source.value})
+        if context is not None and context.epoch != self.multimodal.epoch:
+            self.reply("Lượt điều khiển đã bị hủy. Anh nói lại lệnh giúp em.")
+            return
         busy = self._ai_busy.is_set() or self._basic_busy.is_set()
-        route = self.router.route(text, pending_confirmation=self.safety.pending is not None, resume=self._resume,
+        fusion_pending = getattr(self, "_fusion_confirmation", None)
+        if fusion_pending and time.monotonic() > fusion_pending[0]:
+            self._fusion_confirmation = fusion_pending = None
+        route = self.router.route(text, pending_confirmation=self.safety.pending is not None or fusion_pending is not None, resume=self._resume,
                                   companion=self._companion)
         if route.kind not in ("clarify",):
             self._resume = None
@@ -824,6 +880,17 @@ class Controller:
             self.emergency_stop("Lệnh 'Dừng lại'")
             return
         if route.kind in ("confirm", "deny"):
+            if fusion_pending is not None:
+                self._fusion_confirmation = None
+                if route.kind == "confirm":
+                    _, calls, original, saved = fusion_pending
+                    # Explicit confirmation is a new action, outside the old fusion interval.
+                    saved.start = saved.end = time.monotonic()
+                    saved.confirmed = True
+                    threading.Thread(target=self._run_basic, args=(calls, Source.VOICE, original, saved), daemon=True).start()
+                else:
+                    self.reply("Đã hủy thao tác đang chờ.")
+                return
             if not self.safety.resolve_current(route.kind == "confirm"):
                 self.reply("Hiện không có hành động nào chờ xác nhận.")
             return
@@ -831,6 +898,7 @@ class Controller:
             cancelled = self.cancel_task()
             self.reply(route.reply if cancelled or self.safety.pending else "Dạ, không có tác vụ nào đang chạy.")
             return
+        self._fusion_confirmation = None
         if busy and self._ai_busy.is_set() and not self._basic_busy.is_set():
             # Anh nói lệnh mới trong lúc Gemini còn đang nghĩ (thường vì câu trước nghe sai): câu mới thay câu cũ.
             log.info("Lệnh mới thay cho yêu cầu Gemini đang chờ: %s", "[tâm sự]" if self._companion else truncate(text, 60))
@@ -846,6 +914,7 @@ class Controller:
             self.reply(route.reply, then_standby=True)
             return
         if route.kind == "internal" and route.action in ("companion_on", "companion_off"):
+            self.multimodal.clear()
             self._companion = route.action == "companion_on"
             self.audio.set_conversation_mode(self._companion)
             self.push_status()
@@ -864,7 +933,25 @@ class Controller:
         if source == Source.VOICE:
             self.attention.apply_for_voice()    # lệnh tác động lên màn hình anh nhìn lúc nói
         if route.kind == "basic":
-            threading.Thread(target=self._run_basic, args=(route.calls, source, text), name="nexa-basic", daemon=True).start()
+            calls = route.calls
+            if context is not None and source == Source.VOICE and self.multimodal.enabled:
+                calls, why = self._bind_voice_targets(calls, context)
+                if why:
+                    self.reply(why)
+                    return
+                original_calls = calls
+                calls, why = self.multimodal.reconcile(calls, context)
+                if why:
+                    if "trái nhau" in why:
+                        self._fusion_confirmation = (time.monotonic() + 10.0, original_calls, text, context)
+                    self.reply(why)
+                    return
+                if not calls:
+                    self.reply("Đã gộp lời nói và cử chỉ thành một thao tác.")
+                    return
+            if context is not None:
+                context.executing = True
+            threading.Thread(target=self._run_basic, args=(calls, source, text, context), name="nexa-basic", daemon=True).start()
             return
         ai_ok, ai_reason = self.provider.status()
         if route.kind == "chat" and not ai_ok:
@@ -885,7 +972,27 @@ class Controller:
         from nexa.desktop.routines import load_routines, match_routine
         return match_routine(folded, load_routines(self.config))
 
-    def _run_basic(self, calls: list[tuple[str, dict]], source: Source, text: str = "") -> None:
+    def _bind_voice_targets(self, calls, context):
+        from nexa.utils.text import fold
+        if context.epoch != self.multimodal.epoch:
+            return [], "Lượt điều khiển đã bị hủy. Anh nói lại lệnh giúp em."
+        if time.monotonic() - context.start > float(self.config.get("multimodal.max_pending_s", 20.0)):
+            return [], "Lượt nhận dạng đã quá lâu. Anh nói lại lệnh giúp em."
+        if any("3d" in name for name, _ in calls) and not context.project_id:
+            if any(name in ("focus_3d_part", "rotate_3d_view", "zoom_3d_view", "rotate_3d_part") for name, _ in calls):
+                return [], "Trình xem đã thay đổi sau khi nói. Anh nói lại lệnh giúp em."
+        result = []
+        for name, args in calls:
+            args = dict(args)
+            if fold(str(args.get("part", ""))) in ("bo phan nay", "chi tiet nay", "cai nay", "this", "this part"):
+                selected = self.multimodal.resolve_target(context)
+                if not selected or not context.project_id:
+                    return [], "Anh chỉ và giữ ngón trỏ trên một bộ phận, rồi nói lại giúp em."
+                args["part"] = selected
+            result.append((name, args))
+        return result, ""
+
+    def _run_basic(self, calls: list[tuple[str, dict]], source: Source, text: str = "", context=None) -> None:
         self._basic_busy.set()
         token = self.safety.new_token("basic")
         task_id = new_task_id("cmd")
@@ -903,7 +1010,16 @@ class Controller:
                     ok_all = False
                     break
                 self.sm.set(AppState.EXECUTING, self.registry.get(name).title if self.registry.get(name) else name)
-                result = self.executor.execute(ToolCall(name, dict(args), source, task_id), token)
+                call = ToolCall(name, dict(args), source, task_id)
+                if context is not None:
+                    if context.epoch != self.multimodal.epoch:
+                        messages.append("Lượt điều khiển đã bị hủy.")
+                        ok_all = False
+                        break
+                    if not context.confirmed:
+                        call.input_started_at, call.input_ended_at = context.start, context.end
+                    call.target_id = context.project_id
+                result = self.executor.execute(call, token)
                 messages.append(result.message)
                 if result.data.get("spoken"):
                     spoken_own.append(str(result.data["spoken"]))
@@ -917,6 +1033,9 @@ class Controller:
             if leased:
                 self.executor.release_control("user")
             self._basic_busy.clear()
+            if context is not None:
+                context.executing = False
+                self.multimodal.finish(context)
         reply = " ".join(m for m in messages if m) if len(calls) > 1 else (messages[0] if messages else "")
         # Cho Gemini biết lệnh cơ bản vừa chạy để các câu sau ("mở video đầu tiên"…) có ngữ cảnh.
         self.provider.add_note(f"Anh Sơn vừa nói '{truncate(text, 80)}' → NEXA đã chạy lệnh cơ bản: {truncate(reply, 160)}")
@@ -1006,6 +1125,9 @@ class Controller:
             self._listen()
 
     def cancel_task(self) -> bool:
+        if hasattr(self, "multimodal"):
+            self.multimodal.clear()
+            self._fusion_confirmation = None
         active = self._ai_busy.is_set() or self._basic_busy.is_set() or self.safety.pending is not None
         if self._ai_token is not None:
             self._ai_token.cancel("Người dùng hủy")
@@ -1057,6 +1179,9 @@ class Controller:
         self.safety.emergency_stop(reason)
 
     def _on_emergency(self, reason: str) -> None:
+        if hasattr(self, "multimodal"):
+            self.multimodal.clear()
+            self._fusion_confirmation = None
         if self._ai_token is not None:
             self._ai_token.cancel(reason)
         self.executor.cancel_all(reason)
@@ -1245,11 +1370,18 @@ class Controller:
     def _route_gestures(self) -> None:
         """Camera phục vụ đúng một chế độ: bảng Sinh code (đang hiện, che viewer 3D) > viewer 3D > sáu cử chỉ lệnh."""
         if self.code.panel_open:
-            self.gestures.set_viewer_mode(True, self.code.feed_gesture, name="code")
+            self.gestures.set_viewer_mode(True, self._feed_code_gesture, name="code")
         elif self.three_d.viewer.is_open:
             self.gestures.set_viewer_mode(True, self.three_d.feed_gesture, name="3d")
         else:
             self.gestures.set_viewer_mode(False)
+
+    def _feed_code_gesture(self, obs, t_frame=None):
+        if self._companion or self.multimodal.waiting():
+            with self.code._gesture_lock:
+                self.code.gesture_sm.reset("đang nghe lời nói")
+            return []
+        return self.code.feed_gesture(obs, t_frame)
 
     def _monitor_rects(self) -> tuple[list, Any]:
         """Hình chữ nhật các màn hình (đọc lại tối đa 2 giây/lần: chuột bằng tay hỏi mỗi khung hình)."""

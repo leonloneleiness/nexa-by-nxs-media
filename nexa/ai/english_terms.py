@@ -15,6 +15,7 @@ import re
 TERMS: list[tuple[str, list[str]]] = [
     ("YouTube", ["iu túp", "iu tút", "diu túp", "diu tút", "yêu túp", "du túp", "giu túp", "yu túp", "iu-túp",
                  "diu-túp", "you tube", "iu tu bê", "yiu túp"]),
+    ("ChatGPT", ["chát gpt", "chát gi pê tê", "chát gi pi ti", "chát gi pê te", "chat gpt"]),
     ("Google", ["gu gồ", "gu gô", "gút gồ", "gu-gồ", "gu gơ", "gu gồ gồ"]),
     ("Facebook", ["phây búc", "phê búc", "phết búc", "phây bút", "phây-búc", "phay búc"]),
     ("Messenger", ["mét xen giơ", "mes sen giơ", "mét-xen-giơ"]),

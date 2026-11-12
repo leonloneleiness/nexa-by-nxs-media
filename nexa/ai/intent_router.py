@@ -60,7 +60,7 @@ SIMPLE_SHORTCUTS = [
     (r"^(tai lai trang|lam moi trang|refresh)$", ["f5"]),
     (r"^(dong tab( nay)?)$", ["ctrl", "w"]),
 ]
-SPLIT_RE = re.compile(r"\s*(?:,|;|\.\s|\bxong roi\b|\bsau do\b|\btiep theo\b|\broi\b|\bxong\b|\bva\b)\s*")
+SPLIT_RE = re.compile(r"\s*(?:,|;|\.\s|\band then\b|\bthen\b|\band\b|\bxong roi\b|\bsau do\b|\btiep theo\b|\broi\b|\bxong\b|\bva\b)\s*")
 
 
 def parse_vi_number(folded: str) -> int | None:
@@ -113,13 +113,14 @@ WAKE_PREFIX = re.compile(r"^(?:(?:nay|e|oi|hey|ok)\s+)?(?:nexa|nexa|nech xa|nec 
 # Lời chào đầu câu ("Xin chào, cho tôi hỏi…", "Chào em, mở…"): bỏ đi để nhận ra lệnh phía sau.
 GREETING_PREFIX = re.compile(r"^(?:xin chao|chao|alo|a lo|hello|hi)(?:\s+(?:em|anh|ban|nexa|ca nha))?[\s,.:!]+")
 POLITE_PREFIX = re.compile(r"^(?:(?:em|hay|lam on|giup anh|giup toi|giup minh|cho anh|cho toi|anh muon|toi muon|"
-                           r"minh muon|em hay|em oi|oi)\s+)+")
+                           r"minh muon|em hay|em oi|oi|please|can you|could you|would you|i want you to)\s+)+")
 POLITE_SUFFIX = re.compile(r"(?:\s+(?:giup anh|giup toi|giup minh|giup|nhe|nha|nhe em|di em|a|voi|gium|ho anh|ho|cai|"
                            r"luon|ngay))+\s*[.!?]*$")
 
 
 # Lỗi nghe nhầm hay gặp của Whisper với các lệnh cơ bản (đã quan sát khi thử bằng giọng tổng hợp).
 STT_FIXES = [
+    (re.compile(r"^đắc âm lượng\b", re.I), "đặt âm lượng"),
     (re.compile(r"\b(chúc|chục|trúc) màn hình\b", re.I), "chụp màn hình"),
     (re.compile(r"\b(đã|đạt|đắt) (tâm|đâm) lượng\b", re.I), "đặt âm lượng"),
     (re.compile(r"\b(tâm|đâm) lượng\b", re.I), "âm lượng"),
@@ -222,7 +223,8 @@ class IntentRouter:
     def __init__(self, app_exists: Callable[[str], bool] | None = None,
                  viewer_active: Callable[[], bool] | None = None,
                  part_known: Callable[[str], bool] | None = None,
-                 routine_for: Callable[[str], str | None] | None = None) -> None:
+                 routine_for: Callable[[str], str | None] | None = None, registry=None) -> None:
+        self.registry = registry
         self.app_exists = app_exists
         # Kịch bản làm việc (nexa/desktop/routines.py): câu đã bỏ dấu -> khóa kịch bản, hoặc None.
         self.routine_for = routine_for
@@ -260,6 +262,15 @@ class IntentRouter:
                 return Route("deny")
         if re.fullmatch(r"(huy|huy bo|thoi|bo qua|khong can nua|thoi khong can|thoi bo di|huy lenh)", u):
             return Route("cancel", reply="Dạ, em hủy rồi ạ.")
+        from nexa.ai.bilingual import catalog_route, ui_route
+        extra = catalog_route(t.orig, self.registry) or ui_route(t.orig)
+        if extra is not None:
+            return extra
+        # Literal payloads must never trigger standby/history/code commands within the text.
+        if re.match(r"^(go|nhap|viet noi dung)\b", u):
+            literal_route = self._parse_one(t, 0, whole=True)
+            if literal_route is not None:
+                return literal_route
         if resume and not self._looks_like_command(u):
             filled = resume.replace("{}", t.orig)
             return self.route(filled, pending_confirmation=False, resume=None)
@@ -267,15 +278,17 @@ class IntentRouter:
         if re.fullmatch(r"(nexa )?(cho |dua )?(may|may tinh|laptop) (di |vao )?(ngu|che do ngu|ngu canh gac)( di| nhe)?"
                         r"|(nexa )?(ngu canh gac|tat man hinh( di)?)", u):
             return Route("basic", [("system_power", {"action": "sleep"})])
-        if re.search(r"\b(nghi di|di nghi|nghi ngoi di|ngu di|tam nghi|ve che do cho|che do cho|nghi thoi)\b", u) or \
+        if re.fullmatch(r"(nghi di|di nghi|nghi ngoi di|ngu di|tam nghi|ve che do cho|che do cho|nghi thoi)", u) or \
                 u in ("nghi", "nghi ngoi"):
             return Route("sleep", reply="Vâng, em nghỉ đây. Anh vỗ tay khi cần em nhé.")
-        if re.search(r"\b(xoa|quen|lam moi)( cuoc| lich su)? (hoi thoai|tro chuyen)\b", u):
+        if re.fullmatch(r"(xoa|quen|lam moi)( cuoc| lich su)? (hoi thoai|tro chuyen)", u):
             return Route("internal", action="clear_history", reply="Em đã xóa hội thoại trong phiên này.")
         if self.routine_for is not None:
             key = self.routine_for(u)
             if key:
                 return Route("basic", [("run_routine", {"name": key})])
+        if re.fullmatch(r"chay thu (?:co|cot|cotd)", u):
+            return Route("clarify", reply="Em chưa nghe rõ tên chương trình. Anh nói 'chạy thử code' hoặc 'run code tests' nhé.")
         # Sinh code: xét trước 3D (cùng động từ "tạo/sinh") và trước tách câu ("viết hàm X, rồi thêm test" là MỘT yêu cầu).
         from nexa.code.intents import route_code
         rc = route_code(t.orig, t.fold)
@@ -301,6 +314,10 @@ class IntentRouter:
         single = self._parse_one(t, 0, whole=True)
         if single is not None:
             return single
+        from nexa.ai.bilingual import public_alias_route
+        public = public_alias_route(t.orig, self.registry)
+        if public is not None:
+            return public
         chat = self._chat(u)
         if chat is not None:
             return chat
@@ -308,7 +325,8 @@ class IntentRouter:
 
     # ----- tiền xử lý -----
     def _clean(self, text: str) -> _Text:
-        t = _Text(apply_stt_fixes(nfc(text)))
+        # Keep literal payloads (dictation, explicit tool JSON) intact.
+        t = _Text(nfc(text))
         words = t.fold.split(" ", 1)
         if len(words) == 2 and words[0] in FILLERS and COMMAND_VERBS.match(words[1]):
             t = _Text(t.orig[len(words[0]):])
@@ -325,12 +343,19 @@ class IntentRouter:
                 t = _Text(t.orig[m.end():])
             if t.fold == before:
                 break
+        from nexa.ai.bilingual import english_command, ui_route
+        if not re.match(r"^(command|lenh)\b", t.fold) and ui_route(t.orig) is None:
+            t = _Text(english_command(t.orig))
+        literal = (re.match(r"^(?:command|lenh|go|nhap|viet noi dung)\b", t.fold) or "{" in t.orig
+                   or re.search(r"(?:[,;]|\b(?:then|and|roi|va|sau do))\s+(?:type|dictate|go|nhap)\b", t.fold))
+        if not literal:
+            t = _Text(apply_stt_fixes(t.orig))
         # Giữ "đi" trong "nghỉ đi"; bỏ hậu tố lịch sự khác.
         if not re.search(r"\b(nghi|ngu) di$", t.fold):
             m = POLITE_SUFFIX.search(t.fold)
-            if m and m.start() > 0 and not re.search(r"^(go|nhap|viet)\b", t.fold):
+            if m and m.start() > 0 and not literal and not re.search(r"^(go|nhap|viet)\b", t.fold):
                 t = _Text(t.orig[:m.start()])
-        return fix_app_name(_Text(t.orig.strip(" .!?")))
+        return fix_app_name(t if literal else _Text(t.orig.strip(" .!?")))
 
     @staticmethod
     def _site_search(t: _Text) -> Route | None:
@@ -381,16 +406,20 @@ class IntentRouter:
         calls: CallList = []
         for i, (s, e) in enumerate(spans):
             seg_fold = t.fold[s:e].strip()
-            if re.match(r"^(go|nhap)\b|^viet noi dung\b", seg_fold):
+            if re.match(r"^(go|nhap|type|dictate)\b|^viet noi dung\b", seg_fold):
                 # Lệnh gõ nuốt phần còn lại của câu (nội dung có thể chứa dấu phẩy).
-                sub = _Text(t.orig[s:])
+                sub = self._clean(t.orig[s:])
                 r = self._parse_one(sub, 0, whole=False)
                 if r is None or r.kind != "basic":
                     return None
                 calls.extend(r.calls)
                 return Route("basic", calls=calls)
             sub = _Text(t.orig[s:e])
-            r = self._parse_one(sub, 0, whole=False)
+            from nexa.ai.bilingual import english_command, ui_route
+            r = ui_route(sub.orig)
+            if r is None:
+                sub = _Text(english_command(sub.orig))
+                r = self._parse_one(sub, 0, whole=False)
             if r is None or r.kind != "basic":
                 return None
             calls.extend(r.calls)

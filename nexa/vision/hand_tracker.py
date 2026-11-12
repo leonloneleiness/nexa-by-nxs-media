@@ -34,7 +34,10 @@ class HandTracker:
         from mediapipe.tasks.python import vision
         self._mp = mp
         options = vision.HandLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=str(model_path)),
+            # MediaPipe's Windows native file opener cannot read some Unicode
+            # paths (for example a Vietnamese Windows account name). Python
+            # opens Unicode paths correctly; pass the model bytes to the SDK.
+            base_options=BaseOptions(model_asset_buffer=model_path.read_bytes()),
             running_mode=vision.RunningMode.VIDEO,
             num_hands=num_hands,
             min_hand_detection_confidence=min_detection,

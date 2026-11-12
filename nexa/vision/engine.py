@@ -284,6 +284,7 @@ class GestureEngine:
                 obs = Observation(t=t_frame, present=True, pose=feats.pose, confidence=feats.confidence,
                                   center=feats.center, scale=feats.scale,
                                   snap_ready=feats.snap_ready, snap_released=feats.snap_released)
+                obs.pointer = (float(hand.landmarks[8, 0]), float(hand.landmarks[8, 1]))
             if self.viewer_mode and self._viewer_feed is not None:
                 if not self._paused:                        # dừng khẩn cấp: không đưa khung nào cho viewer
                     try:

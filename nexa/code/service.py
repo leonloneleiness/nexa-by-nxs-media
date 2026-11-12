@@ -697,7 +697,9 @@ class CodeService:
             self.gesture_sm.lock(False)
 
     def status(self) -> dict:
-        return {"enabled": self.enabled, "job": self.job(), "current": self.current.id if self.current else ""}
+        ready, reason = self.generator.ready()
+        return {"enabled": self.enabled, "ready": ready, "reason": reason,
+                "job": self.job(), "current": self.current.id if self.current else ""}
 
     def shutdown(self) -> None:
         self.stop_run()

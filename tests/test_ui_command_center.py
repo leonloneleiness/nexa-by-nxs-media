@@ -195,6 +195,7 @@ def test_main_qml_layout(config, app):
     ui._handle("task", _task("running"))
     f3 = fake({"viewerOpen": (bool, False), "workspace": (bool, False), "activeJob": ("QVariantMap", {}),
                "providerStatus": ("QVariantMap", {})})
+    fe = fake({"open": (bool, False), "catalog": ("QVariantList", []), "state": ("QVariantMap", {})}, ("selectLesson", "setParameter", "runSimulation", "close"))
     fc = fake({"panelOpen": (bool, False), "busy": (bool, False), "job": ("QVariantMap", {})}, ("openPanel", "closePanel"))
     eng = QQmlApplicationEngine()
     warns: list[str] = []
@@ -202,6 +203,7 @@ def test_main_qml_layout(config, app):
     ctx = eng.rootContext()
     ctx.setContextProperty("nexa", ui)
     ctx.setContextProperty("nexa3d", f3)
+    ctx.setContextProperty("nexaEdu", fe)
     ctx.setContextProperty("nexaCode", fc)
     eng.load(str(QML_DIR / "Main.qml"))
     try:
@@ -253,6 +255,12 @@ def test_main_qml_layout(config, app):
             assert origin.x() >= 0 and origin.y() >= 0, name
             assert origin.x() + item.width() <= win.width() + 1, name
             assert origin.y() + item.height() <= win.height() + 1, name
+        ui.commandNavigation.emit("open", "history")
+        pump()
+        assert win.property("historyOpen") and win.property("historyMode") == 2
+        ui.commandNavigation.emit("close", "history")
+        pump()
+        assert not win.property("historyOpen") and win.property("historyMode") == 1
         assert not warns, warns
     finally:
         for o in eng.rootObjects():

@@ -66,7 +66,8 @@ class FaceTracker:
         from mediapipe.tasks.python import vision
         self._mp = mp
         options = vision.FaceLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=str(model_path)),
+            # Use Python's Unicode-aware file I/O for non-ASCII install paths.
+            base_options=BaseOptions(model_asset_buffer=model_path.read_bytes()),
             running_mode=vision.RunningMode.VIDEO,
             num_faces=num_faces,
             min_face_detection_confidence=min_detection,

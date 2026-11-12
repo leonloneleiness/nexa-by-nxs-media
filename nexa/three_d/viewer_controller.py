@@ -59,6 +59,7 @@ class ViewerController:
         self.store = store
         self._notify = notify
         self.on_open_change = on_open_change
+        self.on_selection = None
         self._lock = threading.RLock()
         self.project: Model3DProject | None = None
         self.locked = False
@@ -405,7 +406,7 @@ class ViewerController:
             self._push_camera()
         return True, self._names(ids)
 
-    def select(self, pid: str) -> None:
+    def select(self, pid: str, at: float | None = None) -> None:
         with self._lock:
             if self._part(pid) is None:
                 self.selected = None
@@ -414,6 +415,8 @@ class ViewerController:
                 self.selected = pid
                 self.info_part = pid
         self._push_state()
+        if self.on_selection and self.project:
+            self.on_selection(time.monotonic() if at is None else at, self.project.id, self.selected or "")
 
     def explode(self) -> tuple[bool, str]:
         ok, msg = self._need_open()

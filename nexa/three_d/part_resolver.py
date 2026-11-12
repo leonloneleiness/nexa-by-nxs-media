@@ -113,6 +113,9 @@ def resolve(parts: list[Part3D], query: str, *, selected: str | None = None, all
     q = fold(query)
     if not parts:
         return ResolveResult("not_found", message="Chưa có mô hình nào đang mở.")
+    # Capture-time selection binds an exact stable ID, never a fuzzy name.
+    if any(p.id == query for p in parts):
+        return ResolveResult("ok", [query])
     if DEICTIC.search(q) and not re.sub(DEICTIC, "", q).strip(" ,."):
         if selected and any(p.id == selected for p in parts):
             return ResolveResult("ok", [selected])

@@ -14,6 +14,9 @@ __pycache__/
 build/
 dist/
 *.spec
+*.dll
+mobile/.dart_tool/
+mobile/build/
 release/
 scratch/packaging-tools/
 scratch/release-install-test/

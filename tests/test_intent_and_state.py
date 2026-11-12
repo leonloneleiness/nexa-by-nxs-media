@@ -103,7 +103,7 @@ def test_stt_rejects_silence_and_hallucination(config):
             self.segs = segs
 
         def transcribe(self, audio, **kw):
-            assert kw["language"] == "vi" and kw["vad_filter"] is True
+            assert kw["language"] in ("vi", None) and kw["vad_filter"] is True
             return iter(self.segs), None
 
     stt = SpeechRecognizer(config, config.settings_path.parent)

@@ -35,7 +35,7 @@ def redact(text: str) -> str:
         return text
     with _SECRETS_LOCK:
         secrets = set(_SECRETS)
-    for var in ("GEMINI_API_KEY", "TRIPO_API_KEY", "MESHY_API_KEY", "HF_TOKEN", "HUGGINGFACE_HUB_TOKEN"):
+    for var in ("GEMINI_API_KEY", "OPENAI_API_KEY", "TRIPO_API_KEY", "MESHY_API_KEY", "HF_TOKEN", "HUGGINGFACE_HUB_TOKEN"):
         env_key = os.environ.get(var, "").strip()
         if len(env_key) >= 8:
             secrets.add(env_key)
